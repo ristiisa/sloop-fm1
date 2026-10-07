@@ -510,8 +510,8 @@ static void layer_tap(uint32_t layer)
                 ui.plk = 0, ui.force = 1;
             break;
         }
-        if (on_drum_page()) {                             /* DRUMS: GRID <-> KIT */
-            drum_page = (uint8_t)((drum_page + 1u) % 2u);
+        if (on_drum_page()) {                             /* DRUMS: GRID -> KIT -> MAP */
+            drum_page = (uint8_t)((drum_page + 1u) % 3u);
             ui.force = 1;
             break;
         }
