@@ -3,14 +3,10 @@
 /* Small-canvas renderer (no full framebuffer). Draw text/lines into
  * an off-screen strip, then blit it in one DMA transfer. Pixels are stored
  * byte-swapped (the panel takes RGB565 big-endian). */
-typedef struct {               /* proportional, see tools/gen_font.py */
+typedef struct {               /* one 8 x 16 bitmap font at 1x or 2x, see tools/gen_font.py */
     uint8_t h;
-    uint8_t pad;               /* bitmap starts this many pixels left of the pen */
-    uint8_t first, last;
-    const uint8_t *adv;        /* advance per glyph */
-    const uint8_t *bw;         /* bitmap width per glyph (starts FONT_PAD left of the pen) */
-    const uint16_t *off;       /* byte offset of each glyph */
-    const uint8_t *data;
+    uint8_t scale;
+    uint8_t last;              /* beyond: '?'; lower case folds to upper case below 'a' */
 } felucca_font_t;
 #include "felucca_font.h"
 
@@ -127,47 +123,42 @@ static void cv_line(int32_t x0, int32_t y0, int32_t x1, int32_t y1, uint16_t c)
 }
 
 /* glyph index of a character: lower case folds to upper case when the font
- * has none, anything missing (and C1 controls) draws as '?' */
+ * has none, anything missing (controls, Latin-1 but the U-umlaut) draws as '?' */
 static uint32_t glyph(const felucca_font_t *f, uint32_t ch)
 {
     if (ch >= 'a' && ch <= 'z' && f->last < 'a')
         ch -= 32u;
-    if (ch < f->first || ch > f->last || (ch >= 127u && ch < 160u))
+    if (ch == 0xDCu && f->last >= 'a')
+        return FONT_UUML_GLYPH;
+    if (ch < 32u || ch > f->last)
         ch = '?';
-    return ch - f->first;
+    return ch - 32u;
 }
 
-/* text, alpha-blended onto black with colour c; returns the end x */
+/* text in colour c (pixel doubled at 2x); returns the end x */
 static int32_t cv_text(int32_t x, int32_t y, const felucca_font_t *f, const char *s, uint16_t c)
 {
-    uint16_t ramp[16];
-    uint32_t r = c >> 11, g = (c >> 5) & 63u, b = c & 31u, a;
-    for (a = 0; a < 16u; a++)
-        ramp[a] = (uint16_t)(((r * a / 15u) << 11) | ((g * a / 15u) << 5) | (b * a / 15u));
-    for (; *s; s++) {
-        uint32_t gi = glyph(f, (uint8_t)*s), gx, gy, w, bpr;
-        const uint8_t *gd;
-        w = f->bw[gi];
-        bpr = (w + 1u) / 2u;
-        gd = f->data + f->off[gi];
-        for (gy = 0; gy < f->h; gy++)
-            for (gx = 0; gx < w; gx++) {
-                uint32_t v = gd[gy * bpr + gx / 2u];
-                v = (gx & 1u) ? (v & 15u) : (v >> 4);
-                if (v)
-                    cv_pset(x - f->pad + (int32_t)gx, y + (int32_t)gy, ramp[v]);
-            }
-        x += f->adv[gi];
+    int32_t sc = f->scale, gx, gy, dx, dy;
+    for (; *s; s++, x += 8 * sc) {
+        const uint8_t *gd = FONT_BITS + glyph(f, (uint8_t)*s) * 16u;
+        for (gy = 0; gy < 16; gy++) {
+            uint32_t bits = gd[gy];
+            for (gx = x; bits; gx += sc, bits = bits << 1 & 0xFFu)
+                if (bits & 0x80u)
+                    for (dy = 0; dy < sc; dy++)
+                        for (dx = 0; dx < sc; dx++)
+                            cv_pset(gx + dx, y + gy * sc + dy, c);
+        }
     }
     return x;
 }
 
 static int32_t text_w(const felucca_font_t *f, const char *s)
 {
-    int32_t w = 0;
-    for (; *s; s++)
-        w += f->adv[glyph(f, (uint8_t)*s)];
-    return w;
+    int32_t n = 0;
+    while (s[n])
+        n++;
+    return n * 8 * f->scale;
 }
 
 /* one-shot: text in a box, cleared to black, blitted */

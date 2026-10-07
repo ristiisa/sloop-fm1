@@ -20,6 +20,7 @@ SLOOP is free and open source (GPL-3.0), based on [Felucca](https://github.com/h
 - **ACID.** A DICE style (EDIT + **ALGORITHM**): on a synth track each roll is a new 303 line — notes in the key, accents, slides, ties — after the TB-3PO generator; on the drum track, acid house. See [EDIT — erase](#edit--erase).
 - **GRIDS.** The drum screen's **map** page: four knobs — **X**, **Y**, **DENSITY**, **CHAOS** — move through a map of 25 drum patterns, and the kick, snare and hat follow while you turn, morphing from one groove into the next; the result is written into the pattern (saved, editable). After Grids by Émilie Gillet. See [GRIDS — the drum map](#grids--the-drum-map).
 - **Inverted screen.** HOME → COLOR: **INV BW** and **INV GRN** turn the panel into its negative — a white screen with dark text, much brighter on a dim panel (the track colours invert too).
+- **Room for more.** The firmware is 53 KB smaller — the large font is drawn from the small one, the pitch table is one octave — with the screen and the sound exactly as before.
 
 ### New in 2.3
 
