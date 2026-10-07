@@ -139,7 +139,7 @@ int main(void)
     for (i = 0; i < 53u; i++)
         r.p[i] = (int16_t)(2000 + i);
     up_params(&r, v, def);
-    ok = P_SLCR == 45 && P_SLDEPTH + 1 == P_CHORD && P_CHORD == 49 && P_E0 == 58;
+    ok = P_SLCR == 45 && P_SLDEPTH + 1 == P_CHORD && P_CHORD == 49 && P_E0 == 60;
     for (i = 0; i < 45u; i++)
         ok &= v[i] == (int16_t)(2000 + i);
     for (i = P_SLCR; i < P_E0; i++)
@@ -178,14 +178,27 @@ int main(void)
     for (i = 0; i < 62u; i++)
         r.p[i] = (int16_t)(5000 + i);
     up_params(&r, v, def);
-    ok = P_ARAT + 1 == P_AROT && P_ADEJA + 1 == P_E0;
+    ok = P_ARAT + 1 == P_AROT;
     for (i = 0; i <= P_ARAT; i++)
         ok &= v[i] == (int16_t)(5000 + i);
     for (i = P_AROT; i < P_E0; i++)
         ok &= v[i] == def[i];
     for (i = 0; i < 8u; i++)
         ok &= v[P_E0 + i] == (int16_t)(5000 + 54 + i);
-    bad += check("SLOOP 2.4 record (np 62): ROT, SYNC, RHYM, DEJA defaults, the rest kept", ok);
+    bad += check("SLOOP 2.4 record (np 62): ROT, SYNC, RHYM, DEJA, SHIFT, CYC defaults, the rest kept", ok);
+    /* a record of SLOOP 2.5 before SHIFT (P_COUNT 66, P_E0 58): SHIFT / CYC take their defaults */
+    r.np = 66;
+    for (i = 0; i < 66u; i++)
+        r.p[i] = (int16_t)(6000 + i);
+    up_params(&r, v, def);
+    ok = P_ADEJA + 1 == P_ASHIFT && P_ACYC + 1 == P_E0 && P_E0 == 60;
+    for (i = 0; i <= P_ADEJA; i++)
+        ok &= v[i] == (int16_t)(6000 + i);
+    for (i = P_ASHIFT; i < P_E0; i++)
+        ok &= v[i] == def[i];
+    for (i = 0; i < 8u; i++)
+        ok &= v[P_E0 + i] == (int16_t)(6000 + 58 + i);
+    bad += check("SLOOP 2.5 record (np 66): SHIFT, CYC defaults, the rest kept", ok);
     r.np = P_COUNT;
     for (i = 0; i < P_COUNT; i++)
         r.p[i] = (int16_t)i;

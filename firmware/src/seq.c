@@ -1324,10 +1324,47 @@ static uint32_t arp_shuffle(track_t *t, uint32_t len, uint32_t first)
     return i;
 }
 
-/* the next note of the arp, by MODE; ROT: the order from a later place */
+/* SHIFT: the degrees the note at place idx of the order moves. A cycle is per places of the order: the
+ * list once (UPDN, UPDN+, THMB, PNKY: their period; RND, DRNK, SHUF: as many picks), CHRD: one step.
+ * Each cycle moves SHIFT degrees more, after CYC cycles the notes are as held again; place 0 (the order
+ * started over: a new chord, SYNC BAR) is cycle 0 */
+static int32_t arp_cycle(track_t *t, uint32_t idx, uint32_t per)
+{
+    if (!idx) {
+        t->arp_c0 = 0;
+        t->arp_cyc = 0;
+    } else if (idx - t->arp_c0 >= per) {
+        t->arp_c0 = idx;
+        t->arp_cyc = (uint8_t)(t->arp_cyc + 1u < (uint32_t)t->p[P_ACYC] ? t->arp_cyc + 1u : 0u);
+    }
+    return t->p[P_ASHIFT] * (int32_t)t->arp_cyc;
+}
+
+/* note n moved d degrees of the track's scale (CHR: semitones; a note off the scale steps onto it),
+ * folded by octaves into 0..127 */
+static uint32_t arp_deg(const track_t *t, uint32_t n, int32_t d)
+{
+    uint32_t mask = scale_mask(t), deg = 0, i;
+    int32_t s = d < 0 ? -1 : 1, k = d * s - 1, m;
+    if (!d)
+        return n;
+    for (i = 0; i < 12u; i++)
+        deg += (mask >> i) & 1u;
+    m = scale_step(t, (int32_t)n, s);
+    for (i = (uint32_t)k % deg; i > 0; i--)
+        m = scale_step(t, m, s);
+    m += s * 12 * (k / (int32_t)deg);            /* (the octaves last: scale_step stays near 0..127) */
+    while (m > 127)
+        m -= 12;
+    while (m < 0)
+        m += 12;
+    return (uint32_t)m;
+}
+
+/* the next note of the arp, by MODE; ROT: the order from a later place; SHIFT: moved by its cycle */
 static uint32_t arp_next(track_t *t)
 {
-    uint32_t list[64], len = arp_list(t, list), first = !t->arp_idx, i, j, k, cyc;
+    uint32_t list[64], len = arp_list(t, list), first = !t->arp_idx, i, j, k, cyc = len;
     i = t->arp_idx++ + (uint32_t)t->p[P_AROT];
     switch (t->p[P_AMODE]) {
     case A_DN:
@@ -1339,7 +1376,8 @@ static uint32_t arp_next(track_t *t)
         j = k < len ? k : cyc - k;
         break;
     case A_UPDN2:                                /* the ends twice: C E G G E C */
-        k = i % (2u * len);
+        cyc = 2u * len;
+        k = i % cyc;
         j = k < len ? k : 2u * len - 1u - k;
         break;
     case A_RND:
@@ -1354,9 +1392,11 @@ static uint32_t arp_next(track_t *t)
     case A_PNKY:                                 /* the highest between the others: B C B E B G */
         if (len < 2u) {
             j = 0;
+            cyc = 1;
             break;
         }
-        k = i % (2u * len - 2u);
+        cyc = 2u * len - 2u;
+        k = i % cyc;
         j = t->p[P_AMODE] == A_THMB ? (k & 1u ? 1u + k / 2u : 0u) : (k & 1u ? k / 2u : len - 1u);
         break;
     case A_DRNK:                                 /* a random walk: one place up or down */
@@ -1378,15 +1418,17 @@ static uint32_t arp_next(track_t *t)
         break;
     }
     t->arp_walk = (uint8_t)j;
-    return list[j];
+    return arp_deg(t, list[j], arp_cycle(t, t->arp_idx - 1u, cyc));
 }
 
-/* CHRD: every held note at once, an octave higher each step over OCT octaves (up to 8 notes) */
+/* CHRD: every held note at once, an octave higher each step over OCT octaves (up to 8 notes); SHIFT:
+ * each step a cycle */
 static uint32_t arp_chord(track_t *t, uint8_t *out)
 {
-    uint32_t i, n = 0, o = (t->arp_idx++ + (uint32_t)t->p[P_AROT]) % (uint32_t)t->p[P_AOCT];
+    uint32_t i, n = 0, o = (t->arp_idx + (uint32_t)t->p[P_AROT]) % (uint32_t)t->p[P_AOCT];
+    int32_t d = arp_cycle(t, t->arp_idx++, 1u);
     for (i = 0; i < t->nheld && n < 8u; i++)
-        out[n++] = (uint8_t)clamp((int32_t)t->held[i] + 12 * (int32_t)o, 0, 127);
+        out[n++] = (uint8_t)arp_deg(t, (uint32_t)clamp((int32_t)t->held[i] + 12 * (int32_t)o, 0, 127), d);
     return n;
 }
 
@@ -1457,10 +1499,11 @@ static void arp_strum(track_t *t, uint32_t rat, uint32_t slen)
         t->arp_n = 1;
         arp_sound(t, slen);
     } else {
+        int32_t d = t->p[P_ASHIFT] * (int32_t)t->arp_cyc;   /* (SHIFT: the run moves with the step's note) */
         len = arp_list(t, list);
         j = t->arp_walk;
         for (i = 1, m = n; i < n; i++)
-            t->arp_ch[i] = (uint8_t)list[(dn ? j + len - i % len : j + i) % len];
+            t->arp_ch[i] = (uint8_t)arp_deg(t, list[(dn ? j + len - i % len : j + i) % len], d);
         t->arp_str = 1;
         t->arp_sl = slen / n;
         arp_sound(t, t->arp_sl);

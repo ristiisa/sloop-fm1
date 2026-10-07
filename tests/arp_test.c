@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* The arp modes (the order of the notes on C E G B), the rhythm (ACC, HITS of STEPS, RAT), ROT, SYNC,
- * RHYM, DEJA and what it records, on the real seq.c arp. Build with the same generated headers and flags
- * as hostsim.c. */
+ * RHYM, DEJA, SHIFT / CYC and what it records, on the real seq.c arp. Build with the same generated
+ * headers and flags as hostsim.c. */
 #define main hostsim_main
 #include "hostsim.c"
 #undef main
@@ -51,6 +51,23 @@ static void release_all(track_t *t)
 static int seq_is(uint32_t mode, const uint8_t *notes, uint32_t n, uint32_t oct, const uint8_t *want, uint32_t len)
 {
     track_t *t = setup(mode, notes, n, oct);
+    uint32_t i;
+    for (i = 0; i < len; i++)
+        if (step(t) != want[i])
+            return 0;
+    return 1;
+}
+/* SHIFT: the arp of setup() on scale scl (ROOT C), SHIFT sh, CYC cyc */
+static track_t *setup_sh(uint32_t mode, const uint8_t *notes, uint32_t n, uint32_t oct, int scl, int sh, int cyc)
+{
+    track_t *t = setup(mode, notes, n, oct);
+    t->p[P_SCALE] = (int16_t)scl;
+    t->p[P_ASHIFT] = (int16_t)sh;
+    t->p[P_ACYC] = (int16_t)cyc;
+    return t;
+}
+static int steps_are(track_t *t, const uint8_t *want, uint32_t len)
+{
     uint32_t i;
     for (i = 0; i < len; i++)
         if (step(t) != want[i])
@@ -425,6 +442,210 @@ int main(void)
         check("DEJA 64: the loop changes, some of it each round", same > 16 && same < 56);
     }
 
+    /* SHIFT / CYC: each cycle of the order SHIFT degrees more, CYC cycles, then the notes as held */
+    {
+        static const uint8_t CEG[3] = {60, 64, 67};
+        char v[8];
+        const char *u;
+        ok = TP[P_ASHIFT].min == -7 && TP[P_ASHIFT].max == 7 && TP[P_ASHIFT].def == 0 && TP[P_ACYC].min == 2 &&
+             TP[P_ACYC].max == 8 && TP[P_ACYC].def == 4 && str_len(TP[P_ASHIFT].label) <= 5u &&
+             str_len(TP[P_ACYC].label) <= 5u;
+        param_format(&TP[P_ASHIFT], 0, v, &u);
+        ok &= str_eq(v, "OFF");
+        param_format(&TP[P_ASHIFT], 2, v, &u);
+        ok &= str_eq(v, "+2");
+        param_format(&TP[P_ASHIFT], -7, v, &u);
+        ok &= str_eq(v, "-7");
+        check("SHIFT -7..+7 (OFF, +2, -7), default OFF; CYC 2..8, default 4", ok);
+        {
+            static const uint8_t W[] = {60, 64, 67, 71, 60, 64, 67, 71, 60};
+            t = setup_sh(A_UP, CEGB, 4, 1, 1, 0, 2);
+            check("SHIFT OFF: the notes as held, every cycle", steps_are(t, W, sizeof W));
+        }
+        {
+            static const uint8_t W[] = {60, 64, 67, 64, 67, 71, 67, 71, 74, 71, 74, 77, 60, 64, 67, 64};
+            t = setup_sh(A_UP, CEG, 3, 1, 1, 2, 4);
+            check("SHIFT +2 MAJ, UP C E G: C E G, E G B, G B D', B D' F', CYC 4: C E G", steps_are(t, W, sizeof W));
+        }
+        {
+            static const uint8_t W[] = {60, 64, 67, 61, 65, 68, 62, 66, 69, 60, 64};
+            t = setup_sh(A_UP, CEG, 3, 1, 0, 1, 3);
+            check("SHIFT +1 CHR: semitones (C E G, C# F G#, D F# A), CYC 3", steps_are(t, W, sizeof W));
+        }
+        {
+            static const uint8_t PD[3] = {62, 66, 69};      /* D F# A in D major pentatonic: D E F# A B */
+            static const uint8_t W[] = {62, 66, 69, 64, 69, 71, 66, 71, 74, 62};
+            t = setup_sh(A_UP, PD, 3, 1, 5, 1, 3);
+            t->p[P_ROOT] = 2;
+            check("SHIFT +1 PEN, ROOT D: D F# A, E A B, F# B D', back", steps_are(t, W, sizeof W));
+        }
+        {
+            static const uint8_t W[] = {67, 64, 60, 65, 62, 59, 64, 60, 57, 67};
+            t = setup_sh(A_DN, CEG, 3, 1, 1, -1, 3);
+            check("SHIFT -1 MAJ, DN: G E C, F D B, E C A, back", steps_are(t, W, sizeof W));
+        }
+        {
+            static const uint8_t W[] = {60, 64, 67, 64, 62, 65, 69, 65, 60, 64};
+            t = setup_sh(A_UPDN, CEG, 3, 1, 1, 1, 2);
+            check("UPDN: a cycle is its period (C E G E | D F A F), CYC 2", steps_are(t, W, sizeof W));
+        }
+        {
+            static const uint8_t W[] = {60, 64, 67, 67, 64, 60, 62, 65, 69, 69, 65, 62, 60};
+            t = setup_sh(A_UPDN2, CEG, 3, 1, 1, 1, 2);
+            check("UPDN+: a cycle is its period (C E G G E C | D F A A F D)", steps_are(t, W, sizeof W));
+        }
+        {
+            static const uint8_t W[] = {60, 64, 60, 67, 62, 65, 62, 69, 60};
+            t = setup_sh(A_THMB, CEG, 3, 1, 1, 1, 2);
+            check("THMB: a cycle is its period (C E C G | D F D A)", steps_are(t, W, sizeof W));
+        }
+        {
+            static const uint8_t W[] = {60, 71, 64, 67, 62, 72, 65, 69, 60};
+            t = setup_sh(A_CONV, CEGB, 4, 1, 1, 1, 2);
+            check("CONV: a cycle is the list (C B E G | D C' F A)", steps_are(t, W, sizeof W));
+        }
+        {
+            static const uint8_t CE[2] = {60, 64}, W[] = {60, 72, 64, 76, 64, 76, 67, 79, 60};
+            t = setup_sh(A_OCTI, CE, 2, 2, 1, 2, 2);
+            check("OCTI: a cycle is the list with its octaves (C C' E E' | E E' G G')", steps_are(t, W, sizeof W));
+        }
+        t = setup_sh(A_CHRD, CEG, 3, 1, 1, 2, 3);
+        ok = step(t) && t->arp_n == 3 && t->arp_ch[0] == 60 && t->arp_ch[1] == 64 && t->arp_ch[2] == 67;
+        ok &= step(t) && t->arp_ch[0] == 64 && t->arp_ch[1] == 67 && t->arp_ch[2] == 71;
+        ok &= step(t) && t->arp_ch[0] == 67 && t->arp_ch[1] == 71 && t->arp_ch[2] == 74;
+        ok &= step(t) && t->arp_ch[0] == 60 && t->arp_ch[2] == 67;
+        check("CHRD: each step a cycle (C E G, E G B, G B D', back)", ok);
+        t = setup_sh(A_RND, CEG, 3, 1, 1, 7, 2);           /* +7 degrees: an octave */
+        for (i = 0, ok = 1; i < 30; i++) {
+            k = step(t);
+            ok &= place(CEG, 3, k - ((i / 3u) & 1u ? 12u : 0u)) < 3;
+        }
+        check("RND: a cycle is as many picks as notes (+7 MAJ: an octave up every other 3)", ok);
+        t = setup_sh(A_SHUF, CEGB, 4, 1, 1, 1, 2);
+        {
+            static const uint8_t UP1[4] = {62, 65, 69, 72};    /* C E G B a degree up */
+            uint32_t r;
+            for (r = 0, ok = 1; r < 10; r++) {
+                uint32_t seen = 0;
+                for (i = 0; i < 4; i++) {
+                    uint32_t p = place(r & 1u ? UP1 : CEGB, 4, step(t));
+                    ok &= p < 4;
+                    seen |= 1u << (p & 7u);
+                }
+                ok &= seen == 0xFu;
+            }
+        }
+        check("SHUF: a cycle is a round (every note once, the next round a degree up)", ok);
+        t = setup_sh(A_DRNK, CEG, 3, 1, 1, 7, 3);
+        for (i = 0, ok = 1; i < 45; i++) {
+            k = step(t);
+            ok &= place(CEG, 3, k - 12u * ((i / 3u) % 3u)) < 3;
+        }
+        check("DRNK: a cycle is as many steps as notes", ok);
+        {
+            static const uint8_t W[] = {64, 67, 60, 67, 71, 64, 71, 74, 67};
+            t = setup_sh(A_UP, CEG, 3, 1, 1, 2, 4);
+            t->p[P_AROT] = 1;
+            check("with ROT 1: the cycle as it plays (E G C | G B E | B D' G)", steps_are(t, W, sizeof W));
+        }
+        {
+            static const uint8_t W[] = {60, 0, 64, 0, 67, 0, 64, 0, 67, 0};
+            t = setup_sh(A_UP, CEG, 3, 1, 1, 2, 4);
+            t->p[P_AHITS] = 1;
+            t->p[P_ASTEPS] = 2;
+            check("with HITS 1 of 2: the rests are no places of a cycle", steps_are(t, W, sizeof W));
+        }
+        {
+            static const uint8_t W[] = {60, 0, 64, 67, 64, 0, 67, 71, 67};
+            t = setup_sh(A_UP, CEG, 3, 1, 1, 2, 4);
+            t->p[P_ARHYM] = 4;                                  /* GALOP X.XX */
+            check("with RHYM GALOP X.XX: the rests are no places (C . E G | E . G B | G)", steps_are(t, W, sizeof W));
+        }
+        t = setup_sh(A_UP, CEG, 3, 1, 1, 2, 4);
+        t->p[P_ARAT] = 1;
+        {
+            uint32_t u = unit(t);
+            for (i = 0; i < 3; i++)
+                arp_tick(t, u);
+            arp_tick(t, u);
+            ok = t->arp_ch[0] == 64 && t->arp_rat == 1;
+            arp_tick(t, u / 2u);
+            ok &= t->arp_snd && t->arp_ch[0] == 64 && t->arp_rat == 0;
+        }
+        check("with RAT X2: the hit repeats the moved note", ok);
+        {
+            uint8_t n0[48], n1[48];
+            t = setup_sh(A_RND, CEGB, 4, 1, 1, 0, 2);
+            t->p[P_ADEJA] = 127;
+            t->p[P_APROB] = 80;
+            for (i = 0; i < 48; i++)
+                n0[i] = (uint8_t)step(t);
+            t = setup_sh(A_RND, CEGB, 4, 1, 1, 7, 2);         /* +7 degrees: an octave */
+            t->p[P_ADEJA] = 127;
+            t->p[P_APROB] = 80;
+            for (i = 0; i < 48; i++)
+                n1[i] = (uint8_t)step(t);
+            for (i = 0, k = 0, ok = 1; i < 48; i++) {
+                ok &= n0[i] ? n1[i] == n0[i] + ((k / 4u) & 1u ? 12u : 0u) : !n1[i];
+                k += n0[i] != 0;
+            }
+            check("with DEJA 127, PROB: the same phrase and rests, each cycle of what plays moved", ok && k > 8 && k < 44);
+        }
+
+        t = setup_sh(A_UP, CEG, 3, 1, 1, 2, 4);
+        ok = step(t) == 60 && step(t) == 64 && step(t) == 67 && step(t) == 64;
+        release_all(t);
+        for (i = 0; i < 3; i++)
+            arp_add(t, CEG[i]);
+        ok &= step(t) == 60 && step(t) == 64 && step(t) == 67 && step(t) == 64;
+        check("SYNC NOTE: a new chord starts the order and SHIFT over (the notes as held)", ok);
+        t = setup_sh(A_UP, CEG, 3, 1, 1, 2, 4);
+        t->p[P_ASYNC] = AS_FREE;
+        ok = step(t) == 60 && step(t) == 64 && step(t) == 67 && step(t) == 64;
+        release_all(t);
+        for (i = 0; i < 3; i++)
+            arp_add(t, CEG[i]);
+        ok &= step(t) == 67 && step(t) == 71 && step(t) == 67;
+        check("SYNC FREE: a new chord goes on in the cycle it was in (G B, then G B D')", ok);
+        t = setup_sh(A_UP, CEG, 3, 1, 1, 2, 8);
+        t->p[P_ASYNC] = AS_BAR;
+        song.playing = 1;
+        {
+            static const uint8_t W[] = {60, 64, 67, 64, 67, 71, 67, 71, 74, 71, 74, 77, 74, 77, 81, 77};
+            for (i = 0, ok = 1; i < 16; i++)
+                ok &= pstep(t, i) == W[i];
+        }
+        ok &= pstep(t, 16) == 60 && pstep(t, 17) == 64;
+        check("SYNC BAR: the bar starts the order and SHIFT over (.. F' on step 16, then C E)", ok);
+
+        {
+            static const uint8_t HI[1] = {124}, LO[1] = {2};
+            static const uint8_t WH[] = {124, 119, 124}, WL[] = {2, 7, 2};
+            t = setup_sh(A_UP, HI, 1, 1, 0, 7, 2);
+            ok = steps_are(t, WH, sizeof WH);
+            t = setup_sh(A_UP, LO, 1, 1, 0, -7, 2);
+            ok &= steps_are(t, WL, sizeof WL);
+            t = setup_sh(A_UP, HI, 1, 4, 1, 7, 8);              /* up to 124 + 3 octaves + 49 degrees */
+            for (i = 0; i < 64; i++)
+                ok &= step(t) <= 127u;
+            check("0..127: a note past the top / bottom an octave in (E9 +7 CHR: B8; D-1 -7: G-1)", ok);
+        }
+        {
+            static const uint8_t CS[1] = {61};             /* C#: off C major */
+            t = setup_sh(A_UP, CS, 1, 1, 1, 1, 2);
+        }
+        ok = step(t) == 61 && step(t) == 62 && step(t) == 61;
+        check("a note off the scale: the first degree onto it (C# +1 MAJ: D)", ok);
+
+        t = setup_sh(A_UP, CEG, 3, 1, 1, 2, 4);
+        song.playing = song.rec = 1;
+        for (i = 0; i < 7; i++)
+            pstep(t, i);
+        ok = t->step[0].note[0] == 60 && t->step[1].note[0] == 64 && t->step[2].note[0] == 67 && t->step[3].note[0] == 64 &&
+             t->step[4].note[0] == 67 && t->step[5].note[0] == 71 && t->step[6].note[0] == 67;
+        check("REC: what it plays, the moved notes (C E G E G B G)", ok);
+    }
+
     /* recording: what it plays, with its level and ratchet */
     t = setup(A_CHRD, CEGB, 2, 1);
     t->p[P_AACC] = 1;
@@ -697,6 +918,16 @@ int main(void)
         release_all(t);
         arp_tick(t, 1);
         check("STRUM fuzz (RAT, MODE, GATE, HITS, ACC, OCT, ROT, DEJA, SWG, RHYM, SYNC, keys, play / stop): no note untracked", ok && !gated(t));
+    }
+
+    {   /* SHIFT and STRUM together: a run moves with its step's note */
+        static const uint8_t CEG[3] = {60, 64, 67};
+        t = setup_sh(A_UP, CEG, 3, 1, 1, 2, 4);
+        t->p[P_ARAT] = AR_UP2;
+        for (i = 0; i < 3u; i++)
+            step(t);
+        step(t);
+        check("SHIFT + UP2: cycle 1 plays E, its run G (both 2 degrees up)", t->arp_ch[0] == 64 && t->arp_ch[1] == 67);
     }
 
     /* off */
