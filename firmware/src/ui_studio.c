@@ -340,11 +340,17 @@ static void drum_screen_draw(void)
         sig = sig * 31u + dstep_mask(s);
         sig = sig * 31u + s->lvl[0] + s->lvl[1] * 7u + s->lvl[2] * 49u + s->lvl[3] * 343u;
         sig = sig * 31u + s->rat[0] + s->rat[1] * 7u + s->rat[2] * 49u + s->rat[3] * 343u;
+        sig = sig * 31u + TDRUM->cond[i];
     }
     if (ui.force || sig != body_sig) {
         body_sig = sig;
         cv_begin(240, 100, C_BLACK);
         if (!drum_page) {                              /* GRID: the 16 lanes x 16 steps of this bank */
+            for (j = 0; j < 16u; j++) {                /* a step with a condition: a line over it */
+                uint32_t p = bank * 16u + j;
+                if (p < len && TDRUM->cond[p] && dstep_mask(&TDRUM->dstep[p]))
+                    cv_rect(12 + (int32_t)j * 14, 0, 12, 1, TE_G4);
+            }
             for (i = 0; i < DRUM_LANES; i++) {
                 int32_t y = (int32_t)i * 6 + 2;
                 cv_rect(2, y, 6, 5, pad_lit[i] ? C_WHITE : i == drum_lane ? TE_DRUM : TE_G2);
@@ -457,8 +463,10 @@ static void drum_screen_input(uint32_t pressed, uint32_t home)
                 undo_mark(TDRUM, ui.step_sess ? ui.step_sess : (ui.step_sess = (undo_sess += 4u) | 3u));
                 fm1_irq_off();
                 if (k == 2) {
+                    if (!dstep_mask(st)) TDRUM->cond[drum_cursor] = CN_ALWAYS;   /* (a new step: no condition) */
                     if (s > 0) dstep_set(st, drum_lane, LV_NORM, 0);
                     else dstep_clr(st, drum_lane);
+                    if (!dstep_mask(st)) TDRUM->cond[drum_cursor] = CN_ALWAYS;
                 } else if (dstep_has(st, drum_lane)) {
                     uint32_t r = (uint32_t)clamp((int32_t)lvl_rank(dstep_lvl(st, drum_lane)) + (s > 0 ? 1 : -1), 0, 3);
                     dstep_set(st, drum_lane, LV_UP[r], dstep_rat(st, drum_lane));

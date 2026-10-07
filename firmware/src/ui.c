@@ -145,8 +145,11 @@ static int undo_swap(int redo)
         uint32_t i;
         for (i = 0; i < NSTEP; i++) {
             step_t x = t->step[i];
+            uint8_t c = t->cond[i];
             t->step[i] = undo.st[i];
             undo.st[i] = x;
+            t->cond[i] = undo.cond[i];
+            undo.cond[i] = c;
         }
     }
     len = t->p[P_SLEN];

@@ -200,6 +200,9 @@ typedef struct track {
         step_t step[NSTEP];
         dstep_t dstep[NSTEP];
     };
+    uint8_t cond[NSTEP];         /* the step conditions (seq.c CN_*, 0 = ALWAYS; drums: one for every lane) */
+    uint8_t seq_fail;            /* the playing step's condition failed: it is a rest */
+    uint32_t seq_pass;           /* passes of the pattern since PLAY or a section (cycle / FIRST conditions) */
     uint32_t seq_abs;            /* the step of the transport grid last played (seq.c trk_grid), SEQ_NONE */
     uint16_t seq_idx;            /* its index in the pattern */
     uint8_t seq_notes[4];        /* sounding seq notes */

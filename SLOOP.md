@@ -8,6 +8,10 @@ SLOOP is free and open source (GPL-3.0), based on [Felucca](https://github.com/h
 
 > **Status:** 2.3, running on the FM-1. Still a beta: install at your own risk, and please report what you find (GitHub issues).
 
+### New in 2.5
+
+- **Step conditions and FILL.** Every step can play always, by chance (12–88 %), on pass *a* of every *b* (1:2 … 4:4), only on the first pass or never on it, or only with FILL held (or only without): SEQ + a step held + **KNOB 4**. **FILL**: hold FX and a black key while it plays. See [SEQ — steps](#seq--steps-step-sequencer).
+
 ### New in 2.3
 
 - **A MIDI keyboard on the MIDI IN jack.** The FM-1's 3.5 mm TRS MIDI input works: channels 1–3 play the synth tracks, 10 the drums, 4–16 the selected track. The input reads its buffer by content, so no note is left hanging (fix from Felucca [Salt], by ChanceTheMaker and keremimo). See [MIDI keyboards](#midi-keyboards).
@@ -114,10 +118,10 @@ The tiles are four rows of four, keys 1–4, 5–8, 9–12, 13–16. To find the
 
 | Hold | Keys | KNOB 1 · 2 · 3 · 4 | Tap |
 | --- | --- | --- | --- |
-| **FX** — *punch* | a punch-in effect while the key is held | FILTER · DUST · DUCK · — | FX pages |
+| **FX** — *punch* | white: a punch-in effect while the key is held · black: **FILL** while held | FILTER · DUST · DUCK · — | FX pages |
 | **EDIT** — *erase* | erase that sound / note from the pattern | SHIFT · LENGTH ×2 / ½ · TRANSPOSE · — | EDIT pages (drums: grid / kit) |
 | **ARP** — *roll* | note repeat on the grid | RATE · — · — · — | ARP pages |
-| **SEQ** — *steps* | steps 1–16 of the page | SOUND / NOTE · DIV · SWING · LENGTH | SEQ pages (drums: grid / kit) |
+| **SEQ** — *steps* | steps 1–16 of the page | SOUND / NOTE · DIV · SWING · LENGTH (a step held: SOUND / NOTE · LEVEL · RATCHET · CONDITION) | SEQ pages (drums: grid / kit) |
 | **SCL** — *key* | the key of the song | CHORD · SCALE · KEYS · TRANSPOSE | SCL pages |
 | **GLO** — *mix* | 1–4 mute · 5–8 solo · 16 tap tempo | level of tracks 1 · 2 · 3 · 4 | GLO pages |
 | **SAVE** — *song* | 1–4 play section A–D (next bar) · 5–8 save the loop into A–D · 13 loop / song · 14 SONG REC · 16 the chain | — | TRACKS: the SONG screen · else the SAVE pages |
@@ -187,6 +191,8 @@ MODE and START are settings of the FM-1: they stay as you left them. In a projec
 
 The 16 white keys are the [punch-in effects](#punch-in-effects); they run while the key is held. The knobs drive the [master](#master-dust-duck-filt): **KNOB 1 FILTER** (turn left: low-pass, right: high-pass, centre: off), **KNOB 2 DUST**, **KNOB 3 DUCK**. Keys pressed while FX is held never play or record notes.
 
+**FILL:** hold FX and any **black key** — FILL is on as long as the key is held (let go of FX first and the key keeps it on, both hands free; FX locked with HOME works too). Steps set to **FILL** play only then, steps set to **!FILL** only when it is off: a drum fill, a crash, a busier bass for the last bar before the drop. The held black key lights up.
+
 ### EDIT — erase
 
 Hold EDIT and press a key: that sound (drums) or that note (synths; with CHORD on, the notes of its chord) leaves the selected track's pattern — **while playing**, from every step the playhead passes while you hold the key (MPC style: hold the hat key for one bar and the hats of that bar are gone); **stopped**, from the whole pattern at once. *ERASED* flashes. The knobs reshape the whole pattern:
@@ -221,7 +227,13 @@ While recording, the arp records what it plays: its notes, an accent as a level,
 The 16 white keys are the 16 steps of the page; the lit ones play. The first four black keys (F#3, G#3, A#3, C#4) or **OCT− / OCT+** pick page 1–4 (steps 1–16, 17–32, 33–48, 49–64, up to the track's LENGTH).
 
 - **An empty step:** press its key — it is set at once. Drums: with the sound shown (KNOB 1 picks it, or the last pad you hit); synths: with the note or chord you played last.
-- **A set step:** press and let go — it is cleared. Hold it and turn a knob instead — it is edited, and kept: **KNOB 1** sound (drums) / note (synths), **KNOB 2 LEVEL** (ghost, soft, norm, hard), **KNOB 3 RATCHET** (x1–x4). Hold several step keys to edit them together.
+- **A set step:** press and let go — it is cleared. Hold it and turn a knob instead — it is edited, and kept: **KNOB 1** sound (drums) / note (synths), **KNOB 2 LEVEL** (ghost, soft, norm, hard), **KNOB 3 RATCHET** (x1–x4), **KNOB 4 CONDITION** (below). Hold several step keys to edit them together.
+- **Conditions:** hold a step and turn **KNOB 4** — when the step plays (the dial shows it, the step gets a small square in its corner; on the drum grid a line over it). On the drum track a step has one condition for all its sounds. A step that does not play is a rest: its notes, ties and ratchets are silent; when it plays it keeps its chord, levels and ratchets.
+  - **ALWAYS** (the default: every new step, every empty step) · **12 %, 25 %, 50 %, 75 %, 88 %**: a chance, drawn each time the step comes round.
+  - **1:2 2:2 1:3 2:3 3:3 1:4 2:4 3:4 4:4**: on pass *a* of every *b* of the track's pattern (3:4 plays on the 3rd, 7th, 11th… time round). Passes count from PLAY (and from each section of the song), each track on its own length, so a 3-step pattern and a 16-step one count their own rounds.
+  - **FILL** / **!FILL**: only while FILL is held (FX + a black key) / only while it is not.
+  - **1ST** / **!1ST**: only the first time round after PLAY (or a section) / every time but the first.
+  - Conditions move with their steps: EDIT's SHIFT and LENGTH ×2, undo / redo, the sections and the saved projects keep them; erasing a step or clearing the track takes them away; a note recorded into an empty step starts ALWAYS, one added to a step keeps its condition.
 - **No step held:** KNOB 1 the sound / note to set · KNOB 2 **DIV** (1/4 … 1/32, triplets) · KNOB 3 **SWING** of the track · KNOB 4 **LENGTH** (1–64 steps; each track loops on its own length, polymeters stay in phase).
 
 ### SCL — key and chords
@@ -408,7 +420,7 @@ The glow is a short pulse on every scan of the panel (about 900 times a second):
 | --- | --- |
 | Tracks | 3 synth parts (8 voices shared) + drums (16 sounds, 6 voices) |
 | Sounds | 68 presets on 9 engines (browsed by kind, level-matched), 8 sampled sets (CC0), 3 slots for your own samples |
-| Sequencer | 64 steps per track, own length and division each; chords with a level and ratchet per note; drums with a level and ratchet per sound; ties, slide; MPC swing 50–75 %; one sample-accurate clock for steps, arp, rolls, slicer and song (no drift) |
+| Sequencer | 64 steps per track, own length and division each; chords with a level and ratchet per note; drums with a level and ratchet per sound; a condition per step (chance, a:b, FILL, first pass); ties, slide; MPC swing 50–75 %; one sample-accurate clock for steps, arp, rolls, slicer and song (no drift) |
 | Performance | layers (hold a button: keys and knobs change job): punch-in FX, erase, note repeat, step entry, key / chords, mute / solo / tap tempo |
 | Drum kits | 37 (5 sampled, 32 synthesised, 16 sounds each) |
 | Effects | 16 punch-in effects; master DUST, DUCK, DJ filter; per track drive, slicer, sends to a stereo chorus, a tempo delay and a stereo reverb; master limiter |

@@ -16,6 +16,7 @@
  *
  * Layers: a function button held turns the keys into something else (TE style: hold + touch):
  *   FX   punch-in effects (punch.c)       EDIT  erase that note / sound (while held, as it plays)
+ *        (black keys: FILL)
  *   ARP  note repeat (roll) at G_ROLL     SEQ   steps 1..16 (the UI: ui_layers.c)
  *   SCL  the key of the song (the UI)     GLO   mute / solo / tap tempo (the UI)
  * On the drum track OCT- / OCT+ held play (and record) ghost / hard hits. */
@@ -43,7 +44,7 @@ static const uint16_t SCALE_MASK[] = {
 #define KB_SILENT 255u
 static uint32_t kb_prev;
 /* per key: what its press started, so its release ends the same (whatever the layer or track is now) */
-enum { KS_NONE, KS_NOTE, KS_DRUM, KS_ROLL, KS_ERASE, KS_FX, KS_UI };
+enum { KS_NONE, KS_NOTE, KS_DRUM, KS_ROLL, KS_ERASE, KS_FX, KS_UI, KS_FILL };
 static uint8_t kb_kind[27], kb_trk[27], kb_n[27], kb_nt[27][4];
 static uint8_t last_note = 60;
 static uint8_t pen_n = 1, pen_note[4] = {60};   /* the last chord / note played: the SEQ layer writes it */
@@ -212,6 +213,51 @@ static uint32_t trk_grid(const track_t *t, uint32_t *into, uint32_t *len)
 }
 static uint32_t trk_len(const track_t *t) { return t->p[P_SLEN] > 0 ? (uint32_t)t->p[P_SLEN] : 1u; }
 
+/* ------------------------------------------------------- conditions --- */
+/* Each step has a condition (track_t cond[], SEQ + a step held + KNOB 4; the drum track: one for all the
+ * lanes of the step). ALWAYS plays as ever; a step whose condition fails is a rest (no note, no tie, no
+ * ratchet). An empty step has none (ALWAYS):
+ *   12 % .. 88 %   a chance, drawn each time the step comes round
+ *   a:b            on pass a of every b of the track's pattern (passes since PLAY or a section, each track
+ *                  on its own length)
+ *   FILL / !FILL   only while FILL is held (FX + a black key) / only while it is not
+ *   1ST / !1ST     only on the first pass / on every pass but the first */
+enum { CN_ALWAYS, CN_P12, CN_P25, CN_P50, CN_P75, CN_P88, CN_1_2, CN_2_2, CN_1_3, CN_2_3, CN_3_3, CN_1_4, CN_2_4, CN_3_4,
+       CN_4_4, CN_FILL, CN_NFILL, CN_FIRST, CN_NFIRST, CN_COUNT };
+static const char *const N_COND[CN_COUNT] = {"ALWAYS", "12%", "25%", "50%", "75%", "88%", "1:2", "2:2", "1:3", "2:3",
+                                             "3:3", "1:4", "2:4", "3:4", "4:4", "FILL", "!FILL", "1ST", "!1ST"};
+static const uint8_t CN_CHANCE[5] = {32, 64, 128, 192, 224};        /* x / 256 */
+static const uint8_t CN_CYCLE[9] = {0x12, 0x22, 0x13, 0x23, 0x33, 0x14, 0x24, 0x34, 0x44};   /* a << 4 | b */
+static uint32_t fill_keys;               /* FILL: the black keys held in the FX layer (key_down) */
+
+static int step_sounds(const track_t *t, uint32_t k)   /* step k holds notes (synth) / a hit (drums) */
+{
+    return is_drum(t) ? dstep_mask(&t->dstep[k]) != 0u : t->step[k].time == ST_NOTE && t->step[k].n;
+}
+
+static int cond_ok(const track_t *t, uint32_t c)
+{
+    uint32_t p = t->seq_pass ? t->seq_pass - 1u : 0u;   /* (the first pass: 0) */
+    if (c >= CN_COUNT)
+        return 1;
+    if (c >= CN_P12 && c <= CN_P88)
+        return (rng() & 255u) < CN_CHANCE[c - CN_P12];
+    if (c >= CN_1_2 && c <= CN_4_4)
+        return p % (CN_CYCLE[c - CN_1_2] & 15u) == (CN_CYCLE[c - CN_1_2] >> 4) - 1u;
+    switch (c) {
+    case CN_FILL:
+        return fill_keys != 0u;
+    case CN_NFILL:
+        return !fill_keys;
+    case CN_FIRST:
+        return !p;
+    case CN_NFIRST:
+        return p != 0u;
+    default:
+        return 1;
+    }
+}
+
 /* ------------------------------------------------------------- undo --- */
 /* One step back (and forward again) for the pattern of one track: what it was before the last
  * recording pass, erase, step edit, tool or clear (a session: one mark). EDIT + OCT- / OCT+. */
@@ -220,6 +266,7 @@ static struct {
     int16_t len;
     uint32_t sess;
     step_t st[NSTEP];
+    uint8_t cond[NSTEP];
 } undo;
 static uint32_t undo_sess = 1;           /* UI sessions (seq.c: recording passes use the track's pass) */
 static void undo_mark(const track_t *t, uint32_t sess)
@@ -228,6 +275,7 @@ static void undo_mark(const track_t *t, uint32_t sess)
     if (undo.valid && !undo.undone && undo.trk == i && undo.sess == sess)
         return;                                          /* (this session is marked already) */
     memcpy(undo.st, t->step, sizeof undo.st);
+    memcpy(undo.cond, t->cond, sizeof undo.cond);
     undo.len = t->p[P_SLEN];
     undo.trk = (uint8_t)i;
     undo.sess = sess;
@@ -260,6 +308,8 @@ static void step_add(track_t *t, uint32_t idx, uint32_t note, uint32_t vel, uint
 {
     step_t *s = &t->step[idx];
     uint32_t k;
+    if (s->time != ST_NOTE || !s->n)
+        t->cond[idx] = CN_ALWAYS;                   /* a new step: no condition */
     if (s->time != ST_NOTE || !s->n || t->p[P_VOICE] != V_POLY) {
         s->n = 0;                                   /* a fresh step */
         s->flags = 0;
@@ -316,9 +366,11 @@ static void rec_note(track_t *t, uint32_t note, uint32_t vel, uint32_t rat, int 
 /* live recording into the drum track: lane, level, ratchet */
 static void rec_hit(track_t *t, uint32_t lane, uint32_t lvl, uint32_t rat)
 {
-    uint32_t later, abs = rec_target(t, &later);
+    uint32_t later, abs = rec_target(t, &later), idx = abs % trk_len(t);
     undo_mark(t, UNDO_REC(t));
-    dstep_set(&t->dstep[abs % trk_len(t)], lane, lvl, rat);
+    if (!dstep_mask(&t->dstep[idx]))
+        t->cond[idx] = CN_ALWAYS;                   /* a new step: no condition */
+    dstep_set(&t->dstep[idx], lane, lvl, rat);
     t->seq_active = 1;
     if (later) {
         if (t->rskip_abs != abs)
@@ -420,7 +472,7 @@ static int track_empty(const track_t *t)
 {
     uint32_t k;
     for (k = 0; k < NSTEP; k++)
-        if (is_drum(t) ? dstep_mask(&t->dstep[k]) != 0u : t->step[k].time == ST_NOTE && t->step[k].n)
+        if (step_sounds(t, k))
             return 0;
     return 1;
 }
@@ -436,6 +488,7 @@ static void steps_clear(track_t *t)           /* an empty pattern (synth: REST s
 {
     uint32_t k;
     memset(t->step, 0, sizeof t->step);
+    memset(t->cond, 0, sizeof t->cond);
     if (!is_drum(t))
         for (k = 0; k < NSTEP; k++)
             t->step[k].time = ST_REST;
@@ -592,6 +645,8 @@ static void erase_step(track_t *t, uint32_t idx)
                 dstep_clr(s, l);
                 er_flash = 1;
             }
+        if (!dstep_mask(s))
+            t->cond[idx] = CN_ALWAYS;
     } else {
         step_t *s = &t->step[idx];
         uint32_t i, k = 0, lv = 0, rt = 0;
@@ -613,6 +668,7 @@ static void erase_step(track_t *t, uint32_t idx)
             s->time = ST_REST;
             s->flags = 0;
             s->vel = 0;
+            t->cond[idx] = CN_ALWAYS;
         }
     }
 }
@@ -1120,7 +1176,12 @@ static void key_down(uint32_t k)
     case LY_FX: {                                     /* FX held: the white keys pick a punch-in effect */
         int32_t fx = punch_key(k);
         kb_kind[k] = KS_FX;
-        if (fx >= 0 && fx < (int32_t)PUNCH_NFX) {
+        if (fx < 0) {                                 /* a black key: FILL while held (step conditions) */
+            kb_kind[k] = KS_FILL;
+            fill_keys |= 1u << k;
+            return;
+        }
+        if (fx < (int32_t)PUNCH_NFX) {
             punch.req = (int8_t)fx;
             punch.keybit = 1u << k;
         }
@@ -1219,6 +1280,9 @@ static void key_up(uint32_t k)
             punch.keybit = 0;
             punch.req = -1;
         }
+        return;
+    case KS_FILL:
+        fill_keys &= ~(1u << k);
         return;
     case KS_UI:
         lk_push(kb_nt[k][0], k, 0);
@@ -1394,6 +1458,8 @@ static void seq_reset_tracks(uint32_t pos)
         track_t *t = &trk[i];
         t->seq_abs = SEQ_NONE;
         t->seq_idx = 0;
+        t->seq_pass = 0;
+        t->seq_fail = 0;
         t->rskip_n = 0;
         t->rskip_lanes = 0;
         t->rskip_abs = SEQ_NONE;
@@ -1530,6 +1596,8 @@ static void drum_step(track_t *t, const dstep_t *s, uint32_t skip)
 static void seq_ratchets(track_t *t, uint32_t into, uint32_t slen)
 {
     uint32_t i;
+    if (t->seq_fail)
+        return;                                     /* (its condition failed: a rest) */
     if (is_drum(t)) {
         const dstep_t *s = &t->dstep[t->seq_idx % NSTEP];
         uint32_t m = dstep_mask(s) & ~roll_lanes(t);
@@ -1590,14 +1658,18 @@ static void seq_tick(track_t *t, uint32_t adv)
         t->seq_idx = (uint16_t)idx;
         t->rat_done[0] = t->rat_done[1] = t->rat_done[2] = t->rat_done[3] = 0;
         t->rat_lanes = 0;
-        if (!idx)
+        if (!idx) {
             t->pass++;                               /* a new pass of the loop (recording: one undo) */
+            t->seq_pass++;
+        }
         if (erasing(t))
             erase_step(t, idx);                      /* EDIT + key held: gone as it passes */
+        t->seq_fail = t->cond[idx] && step_sounds(t, idx) && !cond_ok(t, t->cond[idx]);
         if (is_drum(t)) {
             uint32_t skip = t->rskip_abs == abs ? t->rskip_lanes : 0u;
             t->rskip_lanes = 0;
-            drum_step(t, &t->dstep[idx], skip);
+            if (!t->seq_fail)
+                drum_step(t, &t->dstep[idx], skip);
         } else {
             const step_t *s = &t->step[idx];
             uint32_t skip = 0, i, k;
@@ -1608,7 +1680,10 @@ static void seq_tick(track_t *t, uint32_t adv)
                         if (s->note[i] == t->rskip[k])
                             skip |= 1u << i;
             t->rskip_n = 0;
-            seq_step(t, s, slen, skip);
+            if (t->seq_fail)
+                seq_release(t);                      /* its condition failed: a rest */
+            else
+                seq_step(t, s, slen, skip);
         }
     }
     seq_ratchets(t, into, slen);

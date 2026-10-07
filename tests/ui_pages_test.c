@@ -101,7 +101,10 @@ static void key(uint32_t k) { fm1_in.notes |= 1u << k; frame(); fm1_in.notes &= 
 static int fails;
 static void check(int ok, const char *what) { printf("ui: %-74s %s\n", what, ok ? "ok" : "FAIL"); fails += !ok; }
 
-int main(int argc, char **argv)
+#ifndef UI_TEST_MAIN
+#define UI_TEST_MAIN main                  /* (tests/cond_test.c includes this file: its own main) */
+#endif
+int UI_TEST_MAIN(int argc, char **argv)
 {
     uint32_t i;
     outdir = argc > 1 ? argv[1] : "build/host";

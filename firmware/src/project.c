@@ -6,8 +6,9 @@
  * the transport is stopped and nothing sounds) and comes back at power-on: SLOOP starts where you
  * left it.
  *
- * Formats: 5 ("FUN5", written, SLOOP 2.4): today's P_COUNT / G_COUNT, 10-byte steps (levels and
- * ratchets; the drum track: 16 lanes). Read and converted: 4 ("FUN4", SLOOP 2.0..2.3: PROJ_NP_V4
+ * Formats: 6 ("FUN6", written, SLOOP 2.5): today's P_COUNT / G_COUNT, 10-byte steps (levels and
+ * ratchets; the drum track: 16 lanes), then a condition per step of every track (seq.c CN_*). Read and
+ * converted: 5 ("FUN5", SLOOP 2.4: format 6 without the conditions: ALWAYS), 4 ("FUN4", SLOOP 2.0..2.3: PROJ_NP_V4
  * parameters, mapped by id up to P_CHORD, the arp rhythm their defaults), 3 ("FUN3", SLOOP 1.x: 8-byte steps, the
  * drum track's notes become its lanes, the swings x 0.8 for the MPC scale), 2 ("FUN2") and 1 ("FUN1"),
  * which held PROJ_NP_V2 parameters per track, mapped by count as user presets are (the first
@@ -17,7 +18,8 @@
  *
  * Built on the host too (tests/project_test.c, -DPROJ_HOST): the part above the #ifndef
  * PROJ_HOST needs core.h, params.c (TP), drums.c (the lanes), the engines and trk_def_engine (ui.c). */
-#define PROJ_MAGIC 0x46554E35u                 /* "FUN5": four tracks, P_COUNT parameters each, 10-byte steps */
+#define PROJ_MAGIC 0x46554E36u                 /* "FUN6": four tracks, P_COUNT parameters each, 10-byte steps, conditions */
+#define PROJ_MAGIC_V5 0x46554E35u              /* "FUN5": SLOOP 2.4, no conditions; read only */
 #define PROJ_MAGIC_V4 0x46554E34u              /* "FUN4": SLOOP 2.0..2.3, PROJ_NP_V4 parameters; read only */
 #define PROJ_MAGIC_V3 0x46554E33u              /* "FUN3": SLOOP 1.x; read only */
 #define PROJ_MAGIC_V2 0x46554E32u              /* "FUN2": four tracks, PROJ_NP_V2 parameters; read only */
@@ -40,8 +42,16 @@ typedef struct {
     int16_t g[G_COUNT];
     uint8_t sel, rsv[3];                       /* the selected track */
     proj_trk_t t[NTRK];
+    uint8_t cond[NTRK][NSTEP];                 /* the step conditions (seq.c CN_*, 0 = ALWAYS) */
     uint32_t sum;
 } project_t;
+typedef struct {                               /* format 5 (SLOOP 2.4), read only: format 6 up to its conditions */
+    uint32_t magic, size;
+    int16_t g[G_COUNT];
+    uint8_t sel, rsv[3];
+    proj_trk_t t[NTRK];
+    uint32_t sum;
+} project_v5_t;
 typedef struct {                               /* a track of format 4, read only */
     int16_t p[PROJ_NP_V4];
     uint8_t engine, preset;
@@ -90,6 +100,8 @@ typedef struct {                               /* format 1 (until 0.5 beta), rea
 } project_v1_t;
 _Static_assert(sizeof(project_v2_t) == 2552u && sizeof(project_v1_t) == 688u && sizeof(project_v3_t) == 2584u &&
                sizeof(project_v4_t) == 3112u, "formats 1 / 2 / 3 / 4 as they were stored");
+_Static_assert(__builtin_offsetof(project_t, cond) == __builtin_offsetof(project_v5_t, sum),
+               "format 6 is format 5 and the conditions");
 project_t proj_slot[4] __attribute__((section(".noinit")));
 
 static uint32_t proj_hash(const void *p, uint32_t n)   /* FNV-1a over n bytes */
@@ -103,7 +115,7 @@ static uint32_t proj_hash(const void *p, uint32_t n)   /* FNV-1a over n bytes */
 static uint32_t proj_sum(const project_t *p) { return proj_hash(p, sizeof *p - 4u); }
 static int proj_ok(const project_t *q) { return q->magic == PROJ_MAGIC && q->size == sizeof *q && q->sum == proj_sum(q); }
 
-/* ---- old formats -> format 5 */
+/* ---- old formats -> format 6 */
 /* an old step into a synth step (no level, no ratchet) */
 static void step_from8(step_t *d, const step8_t *s)
 {
@@ -168,7 +180,21 @@ static void proj_trk_v2_to_v3(proj_trk_v3_t *d, const proj_trk_v2_t *s, int drum
     memcpy(d->step, s->step, sizeof d->step);
 }
 
-/* a format 4 project -> slot q as format 5: the parameters by id up to P_CHORD, then the new ones
+/* a format 5 project -> slot q as format 6: as it was, every condition ALWAYS */
+static int proj_from_v5(project_t *q, const project_v5_t *v5, int n)
+{
+    if (n != (int)sizeof *v5 || v5->magic != PROJ_MAGIC_V5 || v5->size != sizeof *v5 ||
+        v5->sum != proj_hash(v5, sizeof *v5 - 4u))
+        return 0;
+    memset(q, 0, sizeof *q);
+    memcpy(q, v5, __builtin_offsetof(project_v5_t, sum));
+    q->magic = PROJ_MAGIC;
+    q->size = sizeof *q;
+    q->sum = proj_sum(q);
+    return 1;
+}
+
+/* a format 4 project -> slot q as format 6: the parameters by id up to P_CHORD, then the new ones
  * (their defaults), P_E0.. moved; the steps as they are */
 static int proj_from_v4(project_t *q, const project_v4_t *v4, int n)
 {
@@ -194,7 +220,7 @@ static int proj_from_v4(project_t *q, const project_v4_t *v4, int n)
     return 1;
 }
 
-/* a format 3 project -> slot q as format 5 */
+/* a format 3 project -> slot q as format 6 */
 static void proj_from_v3_ok(project_t *q, const project_v3_t *v3)
 {
     uint32_t i;
@@ -217,7 +243,7 @@ static int proj_from_v3(project_t *q, const project_v3_t *v3, int n)
 }
 
 static project_v3_t proj_v3_tmp;               /* (formats 1, 2: through format 3) */
-/* a format 2 project (n bytes in *v2) -> slot q as format 5 */
+/* a format 2 project (n bytes in *v2) -> slot q as format 6 */
 static int proj_from_v2(project_t *q, const project_v2_t *v2, int n)
 {
     project_v3_t *v3 = &proj_v3_tmp;
@@ -234,7 +260,7 @@ static int proj_from_v2(project_t *q, const project_v2_t *v2, int n)
     return 1;
 }
 
-/* a format 1 project (n bytes in *v1) -> slot q as format 5: the instrument becomes track 1,
+/* a format 1 project (n bytes in *v1) -> slot q as format 6: the instrument becomes track 1,
  * tracks 2..4 start empty (their sounds as at power-on) */
 static int proj_from_v1(project_t *q, const project_v1_t *v1, int n)
 {
@@ -262,14 +288,15 @@ static int proj_from_v1(project_t *q, const project_v1_t *v1, int n)
     return 1;
 }
 
-/* n bytes of a stored project (any format) -> slot q as format 5; 0 = not a project */
+/* n bytes of a stored project (any format) -> slot q as format 6; 0 = not a project */
 static int proj_import(project_t *q, const void *b, int n)
 {
     if (n == (int)sizeof *q && proj_ok((const project_t *)b)) {
         memcpy(q, b, sizeof *q);
         return 1;
     }
-    return proj_from_v4(q, (const project_v4_t *)b, n) || proj_from_v3(q, (const project_v3_t *)b, n) ||
+    return proj_from_v5(q, (const project_v5_t *)b, n) || proj_from_v4(q, (const project_v4_t *)b, n) ||
+           proj_from_v3(q, (const project_v3_t *)b, n) ||
            proj_from_v2(q, (const project_v2_t *)b, n) ||
            proj_from_v1(q, (const project_v1_t *)b, n);
 }
@@ -289,6 +316,7 @@ static void proj_capture(project_t *p)        /* what is playing now, as a proje
         p->t[i].engine = trk[i].eng_req;
         p->t[i].preset = trk[i].preset;
         memcpy(p->t[i].step, trk[i].step, sizeof trk[i].step);
+        memcpy(p->cond[i], trk[i].cond, sizeof trk[i].cond);
     }
     p->sum = proj_sum(p);
 }
@@ -315,6 +343,8 @@ static void proj_apply(const project_t *p, int all)
         }
         t->preset = (uint8_t)(ENGINES[e]->npresets ? (s->preset == 0xFFu ? 0u : s->preset) % ENGINES[e]->npresets : 0u);
         memcpy(t->step, s->step, sizeof t->step);
+        for (i = 0; i < NSTEP; i++)
+            t->cond[i] = (uint8_t)(p->cond[k][i] < CN_COUNT ? p->cond[k][i] : CN_ALWAYS);
         if (k != TRK_DRUM)
             for (i = 0; i < NSTEP; i++) {
                 step_t *st = &t->step[i];
@@ -335,9 +365,10 @@ static void proj_apply(const project_t *p, int all)
 #endif
 static uint8_t sec_dirty, song_dirty;           /* live sections / the song: in RAM, not yet in flash */
 #if FELUCCA_FLASH
-/* slot from flash into RAM (format 5, or an old one converted) */
+/* slot from flash into RAM (format 6, or an old one converted) */
 static union {
-    project_t v5;
+    project_t v6;
+    project_v5_t v5;
     project_v4_t v4;
     project_v3_t v3;
     project_v2_t v2;
@@ -550,7 +581,7 @@ static void persist_boot(void)                    /* before settings_init / pane
                 proj_fetch(i);
             } else {
                 int n = st_load(OBJ_PROJECT0 + i, &proj_tmp, sizeof proj_tmp);
-                if (n != (int)sizeof proj_slot[i] || memcmp(&proj_tmp.v5, &proj_slot[i], sizeof proj_slot[i]))
+                if (n != (int)sizeof proj_slot[i] || memcmp(&proj_tmp.v6, &proj_slot[i], sizeof proj_slot[i]))
                     sec_dirty |= (uint8_t)(1u << i);
             }
     }
