@@ -98,6 +98,8 @@ $CC -O2 -w -Ibuild/gen -Ifirmware/src -Ifirmware/hal -o "$OUT/cond_test" tests/c
 run "step conditions: chance, a:b, FIRST, FILL, drums and synths, shift / x2 / undo, recording" "$OUT/cond_test"
 $CC -O2 -w -Ibuild/gen -Ifirmware/src -Ifirmware/hal -o "$OUT/plock_test" tests/plock_test.c -lm
 run "parameter locks: played, kept apart, nothing stuck, P-LOCK, follow their steps, saved" "$OUT/plock_test" "$OUT"
+$CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/midi_expr_test" tests/midi_expr_test.c -lm
+run "MIDI expression: bend and its range, mod wheel, sustain, CC120 / 121 / 123, no hanging note, drums, recording" "$OUT/midi_expr_test"
 run "DSP render (ANALOG preset 0)" "$OUT/hostsim" 0 0 1 "$OUT/render.wav"
 mkdir -p build/tracks_demo
 run "TRACKS: 4-track pattern, live recording (lengths, swing), voice budget, engine switch, cost" env TRACKS=build/tracks_demo "$OUT/hostsim" 0 0 1 "$OUT/tracks.wav"

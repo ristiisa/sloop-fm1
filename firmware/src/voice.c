@@ -47,6 +47,39 @@ static void track_lfo_tick(track_t *t)
     }
 }
 
+/* MIDI expression in (seq.c midi_ctl; after Felucca 1.0, from a contribution by ChanceTheMaker, GPL-3.0):
+ * a part's pitch bend and the mod wheel's vibrato (5.5 Hz, +-50 cents at 127), live only (not saved), added to
+ * the pitch of every voice of the part. Both glide a quarter of the way a block (no zipper) and land exactly */
+#define VIB_INC ((uint32_t)((11ull << 31) * CTL / FS))  /* 5.5 Hz at the control rate */
+static struct {
+    int32_t bend, bcur;                                 /* pitch bend asked, now: 1/4096 semitone */
+    int32_t dep, dcur;                                  /* vibrato depth asked, now: the wheel << 8 */
+    uint32_t vph;                                       /* vibrato phase */
+} mx[NPART];
+
+static int32_t mx_glide(int32_t cur, int32_t to)
+{
+    int32_t d = (to - cur) / 4;
+    return d ? cur + d : to;
+}
+
+static int32_t mx_tick(track_t *t)                      /* this block's bend + vibrato, 1/4096 semitone */
+{
+    uint32_t i = (uint32_t)(t - trk);
+    int32_t off;
+    if (i >= NPART)
+        return 0;
+    mx[i].bcur = mx_glide(mx[i].bcur, mx[i].bend);
+    mx[i].dcur = mx_glide(mx[i].dcur, mx[i].dep);
+    off = mx[i].bcur;
+    if (!mx[i].dcur) {
+        mx[i].vph = 0;                                  /* (it starts again from the pitch itself) */
+        return off;
+    }
+    mx[i].vph += VIB_INC;
+    return off + ((osc_sine(mx[i].vph) * mx[i].dcur) >> 19);
+}
+
 /* voices the engine may use (POLY and UNISON): its cap, else all of them */
 static uint32_t trk_nvoice(const track_t *t)
 {
@@ -550,7 +583,7 @@ static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
     const engine_t *e = ENGINES[t->engine];
     const int16_t *p = t->p;
     uint32_t i;
-    int32_t lfo = mulq15(t->lfo_val, t->lfo_fade);
+    int32_t lfo = mulq15(t->lfo_val, t->lfo_fade), bend = mx_tick(t);
     /* TUNE in cents: whole 1/16 semitones in the pitch, the rest as a fine factor (no dead zone) */
     int32_t tune = song.g[G_TUNE] >= 0 ? song.g[G_TUNE] * 16 / 100 : -((-song.g[G_TUNE] * 16 + 99) / 100);
     int32_t tune_fine = (song.g[G_TUNE] * 16 - tune * 100) * 2367 / 16000;   /* rest, in 1/4096 (1 ct = 2.367) */
@@ -598,8 +631,8 @@ static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
             v->penv = (int16_t)(v->penv - ((v->penv * 590 + 32767) >> 15));
         if (!env && !m.amp0 && v->stage == 2 && !eng_sampled(e))
             continue;                                   /* held at a silent sustain (SUS 0): nothing to render */
-        {   /* the pitch in 1/4096 semitone: glide, LFO, the pitch envelope; the fraction goes into the increment */
-            int32_t q = (v->pitch_cur << 8) + v->pitch_frac + ((lfo * p[P_LD_PIT] * 3) >> 7) +
+        {   /* the pitch in 1/4096 semitone: glide, bend / vibrato, LFO, the pitch envelope; the fraction goes into the increment */
+            int32_t q = (v->pitch_cur << 8) + v->pitch_frac + bend + ((lfo * p[P_LD_PIT] * 3) >> 7) +
                         ((v->penv * p[P_ED_PIT] * 3) >> 7);
             pitch = (q >> 8) + tune;
             m.pitch16 = clamp(pitch, 0, 2047);
