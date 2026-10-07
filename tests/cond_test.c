@@ -5,6 +5,8 @@
  *   chance     12 / 25 / 50 / 75 / 88 %: the share of passes it plays, drums and synths
  *   a:b        on pass a of every b, each track on its own length; FIRST / !FIRST, again after STOP or a section
  *   FILL       FX + a black key held: FILL steps play, !FILL steps do not (and back when let go)
+ *   AFILL      GLO -> JAM: FILL by itself in the last bar (half bar) of every 2..16 bars of the clock from PLAY
+ *              or a section, not of the tracks' loops (LEN 3, 5, 12, 16, 32); FILL held adds to it; shown
  *   a step     keeps its chord and ratchets when it plays; plays nothing (no ratchet, no slide held) when not
  *   editing    SEQ + steps held + KNOB 4; EDIT shift, length x2, undo / redo carry them; recording into an
  *              empty step, erase, clear: ALWAYS; recording onto a step keeps its condition
@@ -436,6 +438,206 @@ static void t_ui(void)
     song.sel = 0;
 }
 
+/* ---- AFILL (GLO -> JAM): FILL by itself in the last bar of every 2 / 4 / 8 / 16 (2H..16H: its last half
+ * bar), bars of 4 beats of the clock from PLAY or a section, whatever the tracks' lengths */
+#define AB_N 1024u                                   /* note-ons by 1/16 step of the clock: section s at s x 512 */
+static uint32_t ab_hits[NTRK][AB_N], ab_sec, ab_last;
+static void ab_block(void)
+{
+    static int32_t out[CTL * 2];
+    uint32_t va = vage, da = drums.age, i, k, n, x;
+    mix_block(out, CTL);
+    if (!song.playing || trk[0].seq_abs == SEQ_NONE)
+        return;
+    if (trk[0].seq_abs < ab_last)
+        ab_sec++;                                    /* (a section: the clock from 0 again) */
+    ab_last = trk[0].seq_abs;
+    for (i = 0; i < NTRK; i++) {
+        n = 0;
+        if (i < NPART) {
+            for (k = 0; k < NVOICE; k++)
+                n += trk[i].v[k].age > va;
+        } else {
+            for (k = 0; k < NDRUM; k++)
+                n += drums.v[k].age > da;
+        }
+        x = ab_sec * 512u + trk[i].seq_abs;
+        if (x < AB_N)
+            ab_hits[i][x] += n;
+    }
+}
+static void ab_until(uint32_t sec, uint32_t abs)  /* until the clock is at 1/16 step abs of section sec */
+{
+    uint32_t guard = 4000000u;
+    while ((ab_sec < sec || trk[0].seq_abs == SEQ_NONE || trk[0].seq_abs < abs) && guard--)
+        ab_block();
+}
+/* every track 1/16 (16 steps a bar) on its own length, a note / hit on every step: FILL, !FILL, ALWAYS, ... */
+static void ab_setup(const uint8_t *len, uint32_t afill)
+{
+    uint32_t i, k;
+    reset();
+    for (i = 0; i < NTRK; i++) {
+        trk[i].p[P_SDIV] = 2;
+        trk[i].p[P_SLEN] = len[i];
+        for (k = 0; k < len[i]; k++) {
+            if (i < NPART)
+                note(&trk[i], k, (uint8_t)(48u + 7u * i + k % 5u));
+            else
+                hit(k, k % 3u);
+            trk[i].cond[k] = k % 3u == 0u ? CN_FILL : k % 3u == 1u ? CN_NFILL : CN_ALWAYS;
+        }
+    }
+    song.g[G_AFILL] = (int16_t)afill;
+    memset(ab_hits, 0, sizeof ab_hits);
+    ab_sec = ab_last = 0;
+    transport_req = 1;
+    ab_block();
+}
+/* the bar of 1/16 step abs is a fill bar of AFILL a (written out on its own: N bars, the last one / half) */
+static int ab_fill(uint32_t a, uint32_t abs)
+{
+    static const uint8_t NB[9] = {0, 2, 4, 8, 16, 2, 4, 8, 16};
+    uint32_t bar = abs / 16u;
+    return a && bar % NB[a] == NB[a] - 1u && (a <= 4u || abs % 16u >= 8u);
+}
+/* steps 0..n-1 of section sec, every track: FILL steps played exactly in the fill bars (or with FILL held:
+ * steps m0..m1-1), !FILL ones exactly outside, ALWAYS always; once each */
+static int ab_ok(uint32_t a, uint32_t sec, uint32_t n, uint32_t m0, uint32_t m1)
+{
+    uint32_t i, s;
+    for (i = 0; i < NTRK; i++)
+        for (s = 0; s < n; s++) {
+            uint32_t c = trk[i].cond[s % (uint32_t)trk[i].p[P_SLEN]], h = ab_hits[i][sec * 512u + s];
+            int f = ab_fill(a, s) || (s >= m0 && s < m1), want = c == CN_FILL ? f : c == CN_NFILL ? !f : 1;
+            if (h > 1u || (h != 0u) != want) {
+                printf("cond: AFILL %u, track %u, step %u of section %u: %u note-ons, want %d\n", a, i + 1u, s, sec, h, want);
+                return 0;
+            }
+        }
+    return 1;
+}
+
+static void t_afill(void)
+{
+    static const uint8_t LA[NTRK] = {3, 5, 12, 16}, LB[NTRK] = {32, 16, 5, 3};
+    const uint8_t *L[2] = {LA, LB};
+    uint32_t a, r, ok;
+    char what[120];
+    ck(G_AFILL == G_COUNT - 1 && GP[G_AFILL].max == 8 && GP[G_AFILL].def == 0 && str_eq(GP[G_AFILL].names[4], "16") &&
+       str_eq(GP[G_AFILL].names[5], "2H"), "AFILL: OFF, 2, 4, 8, 16 bars, 2H..16H (half a bar); OFF by default");
+    for (r = 0; r < 2u; r++)
+        for (a = 0; a <= 8u; a++) {
+            uint32_t bars = a ? 2u * (2u << ((a - 1u) & 3u)) + 1u : 5u;
+            ab_setup(L[r], a);
+            ab_until(0, bars * 16u);
+            ok = ab_ok(a, 0, bars * 16u, 0, 0);
+            snprintf(what, sizeof what, "AFILL %s (LEN %u, %u, %u, drums %u): FILL / !FILL by the bars, %u bars", N_AFILL[a],
+                     L[r][0], L[r][1], L[r][2], L[r][3], bars);
+            ck(ok, what);
+            stop();
+        }
+
+    /* FILL held by hand: in bar 2 (not an AFILL bar) and over bar 4 (one): FILL as either says */
+    ab_setup(LA, 2);
+    ab_until(0, 15);
+    fm1_in.buttons = ly_bit[LY_FX];                  /* FX + a black key, from the last step of bar 1 */
+    fm1_in.notes = 1u << 1;
+    ab_block();
+    fm1_in.buttons = 0;
+    ab_until(0, 31);
+    fm1_in.notes = 0;
+    ab_block();
+    ab_until(0, 47);
+    fm1_in.buttons = ly_bit[LY_FX];
+    fm1_in.notes = 1u << 3;
+    ab_block();
+    fm1_in.buttons = 0;
+    ab_until(0, 63);
+    fm1_in.notes = 0;
+    ab_block();
+    ab_until(0, 9u * 16u);
+    ck(ab_ok(2, 0, 9u * 16u, 16, 32) && !fill_keys, "AFILL 4 and FILL held (bar 2, and over bar 4): FILL plays when either is on");
+    for (ok = 1, r = 48; r < 64u; r++)               /* (bar 4: held and AFILL, as by either alone) */
+        ok &= ab_hits[0][r] == (r % 3u != 1u);
+    ck(ok, "FILL held in an AFILL bar: that bar as by either alone (no step twice)");
+    stop();
+
+    /* a section restarts the count: AFILL 2, a section asked for in bar 3 starts on bar 4 (would be a fill bar) */
+    ab_setup(LA, 1);
+    ab_until(0, 40);
+    live_req = 0;
+    ab_until(1, 4u * 16u);
+    ck(live_req < 0 && ab_ok(1, 0, 48, 0, 0) && ab_ok(1, 1, 64, 0, 0) && !ab_hits[0][48],
+       "a section: the bars count again from its start (its 1st bar no fill, its 2nd one)");
+    stop();
+    ck(!fill_on(), "stopped: no AFILL");
+}
+
+/* what shows: the TRACKS header's beat lights in the FX colour (and "fill"), the FX layer's black keys */
+static uint32_t beat_lights_fx(void)
+{
+    uint32_t k, n = 0;
+    for (k = 0; k < 4u; k++)
+        n += swap16(screen[29u * 240u + 107u + 9u * k]) == TE_DRUM;
+    return n;
+}
+static void t_afill_ui(void)
+{
+    uint32_t guard, lit_off, lit_on, n_off, n_on;
+    reset();
+    song.g[G_AFILL] = 2;
+    go_home();
+    ui.force = 1;
+    frame();
+    transport_req = 1;
+    frame();
+    n_off = beat_lights_fx();
+    press(B_FX);
+    frames(12);
+    lit_off = keys_lit();
+    for (guard = 2000; !fill_on() && guard; guard--)
+        frame();
+    frame();
+    lit_on = keys_lit();
+    ui.force = 1;
+    frame();
+    ppm("layer-fx-afill");
+    release(B_FX);
+    go_home();
+    ui.force = 1;
+    frame();
+    n_on = beat_lights_fx();
+    ppm("page-tracks-afill");
+    ck(fill_on() && (clk_beat >> 2) % 4u == 3u, "AFILL 4: FILL on in the 4th bar");
+    ck(lit_off == 0u && lit_on == 0x52A52Au, "the FX layer: the black keys lit in an AFILL bar (as if held), not before");
+    ck(n_off == 0u && n_on == 3u, "TRACKS header: the beat lights of an AFILL bar in the FX colour");
+    while (fill_on() && guard--)
+        frame();
+    ui.force = 1;
+    frame();
+    ck(!fill_on() && beat_lights_fx() == 0u, "the bar after: FILL off, the beat lights as before");
+    stop();
+    song.g[G_AFILL] = 0;
+
+    /* GLO tapped to its JAM page (after DRUMS): KNOB 4 AFILL */
+    palette_set(4);                                  /* (the colours of ui_pages_test.c's renders) */
+    go_home();
+    frame();
+    for (guard = 0; guard < 8u && !str_eq(cur_page()->title, "JAM"); guard++)
+        tap(B_GLO);
+    encs[panel.enc[EN_K4]] = 1;
+    frame();
+    ui.force = 1;
+    frame();
+    ppm("page-jam");
+    ck(str_eq(cur_page()->title, "JAM") && cur_page()->fam == FAM_GLO && !str_eq(cur_page()[-1].title, "JAM") &&
+       str_eq(cur_page()[-1].title, "DRUMS") && song.g[G_AFILL] == 1, "GLO -> JAM (after DRUMS): KNOB 4 AFILL (OFF -> 2)");
+    song.g[G_AFILL] = 0;
+    go_home();
+    frame();
+}
+
 int main(int argc, char **argv)
 {
     outdir = argc > 1 ? argv[1] : "build/host";
@@ -452,6 +654,8 @@ int main(int argc, char **argv)
     t_edit();
     t_record();
     t_ui();
+    t_afill();
+    t_afill_ui();
     puts(bad ? "cond test FAILED" : "cond: all checks ok");
     return bad ? 1 : 0;
 }

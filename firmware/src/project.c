@@ -95,7 +95,7 @@ typedef struct {                               /* format 1 (until 0.5 beta), rea
 } project_v1_t;
 _Static_assert(sizeof(project_v2_t) == 2552u && sizeof(project_v1_t) == 688u && sizeof(project_v3_t) == 2584u &&
                sizeof(project_v4_t) == 3112u, "formats 1 .. 4 as they were stored");
-_Static_assert(sizeof(plk_t) == 4u && sizeof(project_t) == 3684u, "format 5");
+_Static_assert(sizeof(plk_t) == 4u && sizeof(project_t) == 3688u, "format 5");
 project_t proj_slot[4] __attribute__((section(".noinit")));
 
 static uint32_t proj_hash(const void *p, uint32_t n)   /* FNV-1a over n bytes */
@@ -175,7 +175,7 @@ static void proj_trk_v2_to_v3(proj_trk_v3_t *d, const proj_trk_v2_t *s, int drum
 }
 
 /* a format 4 project -> slot q as format 5: the parameters by id up to P_CHORD, then the new ones
- * (their defaults), P_E0.. moved; the steps as they are */
+ * (their defaults), P_E0.. moved; the globals added since their defaults; the steps as they are */
 static int proj_from_v4(project_t *q, const project_v4_t *v4, int n)
 {
     uint32_t i, k, nc = PROJ_NP_V4 - 8u;

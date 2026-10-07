@@ -74,6 +74,7 @@ enum {                          /* global parameters */
     G_ROLL,                     /* note repeat rate (ARP + key, seq.c) */
     G_NEWPRJ,                   /* TOOLS > NEW: a new project (GO) */
     G_EVOL, G_EVBK,             /* EVOLVE: a mutate pass every 1..8 bars, back every 4..16 (seq.c evolve) */
+    G_AFILL,                    /* JAM: FILL by itself in the last bar of every 2..16 (seq.c fill_on) */
     G_COUNT
 };
 

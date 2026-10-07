@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Host test of the project formats (firmware/src/project.c, -DPROJ_HOST part). Format 5 ("FUN5":
  * 10-byte steps with levels and ratchets, the drum track's 16 lanes, the arp rhythm, ROT / SYNC / RHYM /
- * DEJA, SHIFT / CYC, TURN, EVOL / BACK, a condition per step, the parameter locks, checked on load) is written; format 4
+ * DEJA, SHIFT / CYC, TURN, EVOL / BACK, AFILL, a condition per step, the parameter locks, checked on load) is written; format 4
  * ("FUN4", SLOOP 2.0..2.3), format 3 ("FUN3", SLOOP 1.x), format 2 ("FUN2", 53 parameters per track) and format 1 ("FUN1"), built
  * byte for byte as the firmware stored them, convert: every old value at its parameter, the parameters
  * added since at their defaults, the swings onto the MPC scale (x 0.8), synth steps as they were, the
@@ -124,12 +124,13 @@ int main(void)
     bad += check("layout: P_CHORD, the arp rhythm, ROT..DEJA, SHIFT, CYC, TURN, P_E0 (61); P_COUNT = format 4's + 11",
                  P_CHORD + 1 == P_AACC && P_ARAT + 1 == P_AROT && P_ADEJA + 1 == P_ASHIFT && P_ACYC + 1 == P_TURN &&
                  P_TURN + 1 == P_E0 && P_E0 == 61 && P_COUNT == 69 && P_COUNT == PROJ_NP_V4 + 11u && P_SLDEPTH + 1 == P_CHORD);
-    bad += check("layout: EVOL, BACK after NEW; G_COUNT = format 4's + 2", G_NEWPRJ + 1 == G_EVOL && G_EVOL + 1 == G_EVBK &&
-                 G_EVBK + 1 == G_COUNT && G_COUNT == PROJ_NG_V4 + 2u && sizeof(project_v4_t) == 3112u);
-    bad += check("format 5: the tracks, a condition per step and track, the locks, then the sum (3684 bytes)",
-                 sizeof(project_t) == 3684u && PLK_MAX == 56u &&
+    bad += check("layout: EVOL, BACK, AFILL after NEW; G_COUNT = format 4's + 3", G_NEWPRJ + 1 == G_EVOL && G_EVOL + 1 == G_EVBK &&
+                 G_EVBK + 1 == G_AFILL && G_AFILL + 1 == G_COUNT && G_COUNT == PROJ_NG_V4 + 3u && sizeof(project_v4_t) == 3112u);
+    bad += check("format 5: the tracks, a condition per step and track, the locks, then the sum (3688 bytes)",
+                 sizeof(project_t) == 3688u && PLK_MAX == 56u &&
                  __builtin_offsetof(project_t, cond) + NTRK * NSTEP == __builtin_offsetof(project_t, lk) &&
-                 __builtin_offsetof(project_t, lk) + 4u * PLK_MAX + 4u == sizeof(project_t));
+                 __builtin_offsetof(project_t, lk) + 4u * PLK_MAX + 2u == __builtin_offsetof(project_t, sum) &&
+                 __builtin_offsetof(project_t, sum) + 4u == sizeof(project_t));   /* (G_COUNT odd: 2 bytes of padding, zeroed) */
     /* (.noinit holds 200 bytes besides the slots: fm1_crash, felucca_dbg, bootguard, panel, settings) */
     bad += check("format 5 fits one flash object; 4 slots fit .noinit", sizeof(project_t) <= 3840u &&
                  4u * sizeof(project_t) < 0x3D50u - 512u);
@@ -215,7 +216,9 @@ int main(void)
         v4.sum = proj_hash(&v4, sizeof v4 - 4u);
         memcpy(&buf, &v4, sizeof v4);
         ok = proj_import(&q, &buf, (int)sizeof v4) && proj_ok(&q) && q.magic == PROJ_MAGIC && q.sel == 1 &&
-             !memcmp(q.g, v4.g, sizeof v4.g) && q.g[G_EVOL] == 0 && q.g[G_EVBK] == 0;
+             !memcmp(q.g, v4.g, sizeof v4.g);
+        for (i = PROJ_NG_V4; i < G_COUNT; i++)
+            ok &= q.g[i] == GP[i].def;
         for (t = 0; t < NTRK; t++) {
             for (k = 0; k <= P_CHORD; k++)
                 ok &= q.t[t].p[k] == oldv(t, k);
@@ -226,7 +229,7 @@ int main(void)
                 ok &= q.t[t].p[P_E0 + k] == oldv(t, PROJ_NP_V4 - 8u + k);
             ok &= q.t[t].engine == OLD_ENG[t] && q.t[t].preset == t + 2u && !memcmp(q.t[t].step, v4.t[t].step, sizeof q.t[t].step);
         }
-        bad += check("FUN4 -> FUN5: parameters by id, the arp rhythm default, P_E0.. moved, steps, EVOL / BACK off", ok);
+        bad += check("FUN4 -> FUN5: parameters by id, the arp rhythm default, P_E0.. moved, steps, EVOL / BACK / AFILL off", ok);
         v4.t[2].p[7]++;
         memcpy(&buf, &v4, sizeof v4);
         bad += check("FUN4 with a bad checksum: refused", !proj_import(&q2, &buf, (int)sizeof v4));
@@ -245,12 +248,13 @@ int main(void)
     q.t[TRK_DRUM].p[P_TURN] = 100;
     q.g[G_EVOL] = 2;
     q.g[G_EVBK] = 3;
+    q.g[G_AFILL] = 6;
     q.sum = proj_sum(&q);
     memcpy(&buf, &q, sizeof q);
     bad += check("FUN5 -> FUN5: as stored (levels, ratchets, lanes, engine 8, RHYM, DEJA, SHIFT, CYC, TURN, EVOL, BACK)",
                  proj_import(&q2, &buf, (int)sizeof q) && !memcmp(&q, &q2, sizeof q) && q2.t[1].engine == 8 &&
                  q2.t[2].p[P_ASHIFT] == -3 && q2.t[2].p[P_ACYC] == 7 && q2.t[1].p[P_TURN] == 35 &&
-                 q2.t[TRK_DRUM].p[P_TURN] == 100 && q2.g[G_EVOL] == 2 && q2.g[G_EVBK] == 3);
+                 q2.t[TRK_DRUM].p[P_TURN] == 100 && q2.g[G_EVOL] == 2 && q2.g[G_EVBK] == 3 && q2.g[G_AFILL] == 6);
     q.cond[0][3] = CN_1_4;
     q.cond[TRK_DRUM][5] = CN_P25;
     q.cond[2][63] = CN_NFIRST;
@@ -315,15 +319,16 @@ int main(void)
     song.g[G_DUST] = 33;
     song.g[G_EVOL] = 4;
     song.g[G_EVBK] = 1;
+    song.g[G_AFILL] = 4;
     proj_capture(&q);
     host_tracks_init();
-    song.g[G_EVOL] = song.g[G_EVBK] = 0;
+    song.g[G_EVOL] = song.g[G_EVBK] = song.g[G_AFILL] = 0;
     proj_apply(&q, 1);
-    ok = trk[1].cond[2] == CN_FILL && TDRUM->cond[9] == CN_2_3 && trk[0].cond[2] == CN_ALWAYS;
+    ok = song.g[G_AFILL] == 4 && trk[1].cond[2] == CN_FILL && TDRUM->cond[9] == CN_2_3 && trk[0].cond[2] == CN_ALWAYS;
     q.cond[3][1] = 200;                                /* (out of range: ALWAYS) */
     proj_apply(&q, 1);
     ok &= TDRUM->cond[1] == CN_ALWAYS;
-    bad += check("the working project: conditions captured / applied (bad ones ALWAYS)", ok);
+    bad += check("the working project: conditions, AFILL captured / applied (bad conditions ALWAYS)", ok);
     ok = trk[2].p[P_SLEN] == 7 && trk[1].step[2].n == 2 && trk[1].step[2].lvl == 0x0D && song.g[G_DUST] == 33 &&
          song.g[G_EVOL] == 4 && song.g[G_EVBK] == 1 &&
          dstep_has(&TDRUM->dstep[9], 4) && dstep_lvl(&TDRUM->dstep[9], 4) == LV_SOFT && dstep_rat(&TDRUM->dstep[9], 4) == 1u;

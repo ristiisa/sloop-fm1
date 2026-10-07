@@ -155,9 +155,9 @@ static void loop_pos(const track_t *t, char *b)
 static void te_header(const char *title, uint16_t tc, uint32_t *cache)
 {
     char b[12];
-    uint32_t beat = clk_beat, k, playing = song.playing;
+    uint32_t beat = clk_beat, k, playing = song.playing, fill = playing && fill_on();
     int32_t px = punch.req;                            /* the punch-in effect on (LATCH: FX let go), or -1 */
-    uint32_t sig = studio_hash((uint32_t)song.g[G_BPM] * 7u + playing * 3u + (song.rec != 0) * 1999u +
+    uint32_t sig = studio_hash((uint32_t)song.g[G_BPM] * 7u + playing * 3u + (song.rec != 0) * 1999u + fill * 7877u +
                                (playing ? beat * 131u + TSEL->seq_idx * 7919u : 0u) + (uint32_t)song.g[G_CLOCK] * 77u +
                                arrangement_enabled * 5u + (ui.bpm_t != 0) * 104729u + song.solo * 37u +
                                (uint32_t)(px + 1) * 10007u, title);
@@ -176,13 +176,15 @@ static void te_header(const char *title, uint16_t tc, uint32_t *cache)
     } else {
         cv_text(122, 5, &FONT_S, arrangement_enabled ? "song" : "loop", TE_G3);
     }
-    for (k = 0; k < 4u; k++)                           /* the four beats of the bar */
-        cv_rect(104 + (int32_t)k * 9, 26, 7, 7, playing && beat % 4u == k ? (k ? C_WHITE : TE_RED) : TE_G2);
+    for (k = 0; k < 4u; k++)                           /* the four beats of the bar; a FILL bar: in the FX layer's colour */
+        cv_rect(104 + (int32_t)k * 9, 26, 7, 7, playing && beat % 4u == k ? (k ? C_WHITE : TE_RED) : fill ? TE_DRUM : TE_G2);
     if (px >= 0) {                                     /* a disc in the FX layer's colour, the name where "click" /
                                                         * "solo" are not */
         te_disc(148, 29, 4, TE_DRUM);
         if (!(song.rec ? song.g[G_CLOCK] != 0 : song.solo != 0))
             cv_text(156, 22, &FONT_S, PUNCH_SHORT[(uint32_t)px % PUNCH_NFX], TE_DRUM);
+    } else if (fill && !(song.rec ? song.g[G_CLOCK] != 0 : song.solo != 0)) {
+        cv_text(148, 22, &FONT_S, "fill", TE_DRUM);    /* (a punch-in's name has the place: the beats show FILL) */
     }
     if (song.rec) {
         te_disc(224, 12, 8, TE_RED);

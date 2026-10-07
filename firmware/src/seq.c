@@ -221,7 +221,7 @@ static uint32_t trk_len(const track_t *t) { return t->p[P_SLEN] > 0 ? (uint32_t)
  *   12 % .. 88 %   a chance, drawn each time the step comes round
  *   a:b            on pass a of every b of the track's pattern (passes since PLAY or a section, each track
  *                  on its own length)
- *   FILL / !FILL   only while FILL is held (FX + a black key) / only while it is not
+ *   FILL / !FILL   only while FILL is on (FX + a black key held, or AFILL's bar: fill_on) / only while not
  *   1ST / !1ST     only on the first pass / on every pass but the first */
 enum { CN_ALWAYS, CN_P12, CN_P25, CN_P50, CN_P75, CN_P88, CN_1_2, CN_2_2, CN_1_3, CN_2_3, CN_3_3, CN_1_4, CN_2_4, CN_3_4,
        CN_4_4, CN_FILL, CN_NFILL, CN_FIRST, CN_NFIRST, CN_COUNT };
@@ -230,6 +230,17 @@ static const char *const N_COND[CN_COUNT] = {"ALWAYS", "12%", "25%", "50%", "75%
 static const uint8_t CN_CHANCE[5] = {32, 64, 128, 192, 224};        /* x / 256 */
 static const uint8_t CN_CYCLE[9] = {0x12, 0x22, 0x13, 0x23, 0x33, 0x14, 0x24, 0x34, 0x44};   /* a << 4 | b */
 static uint32_t fill_keys;               /* FILL: the black keys held in the FX layer (key_down) */
+
+/* FILL now: held, or AFILL (JAM page) 2 / 4 / 8 / 16: the last bar of every that many while playing
+ * (2H..16H: its last half bar); bars of 4 beats of the clock, from PLAY or a section (seq_reset_tracks
+ * zeroes clk_beat), not the tracks' loops */
+static int fill_on(void)
+{
+    uint32_t a = (uint32_t)song.g[G_AFILL], n = 2u << ((a - 1u) & 3u);
+    if (fill_keys)
+        return 1;
+    return a && song.playing && ((clk_beat >> 2) & (n - 1u)) == n - 1u && (a < 5u || (clk_beat & 2u));
+}
 
 static int step_sounds(const track_t *t, uint32_t k)   /* step k holds notes (synth) / a hit (drums) */
 {
@@ -247,9 +258,9 @@ static int cond_ok(const track_t *t, uint32_t c)
         return p % (CN_CYCLE[c - CN_1_2] & 15u) == (CN_CYCLE[c - CN_1_2] >> 4) - 1u;
     switch (c) {
     case CN_FILL:
-        return fill_keys != 0u;
+        return fill_on();
     case CN_NFILL:
-        return !fill_keys;
+        return !fill_on();
     case CN_FIRST:
         return !p;
     case CN_NFIRST:
