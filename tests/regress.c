@@ -3,9 +3,9 @@
 /* Regression suite of the FELUCCA DSP on the Mac (same sources as the firmware, through hostsim.c).
  *   build/host/regress [GOLDEN_FILE CPU_FILE]      (run_tests.sh builds and runs it)
  *
- * 1. golden renders: every engine x factory preset, the GM drum kit, the voice modes (POLY / MONO /
- *    LEGATO / UNISON) of three engines, the FX sends, a 4-track sequencer mix, and the SLICER (slicer.c:
- *    GATE / STUT on the phrase, and on the 4-track mix with the transport). Each render plays
+ * 1. golden renders: every engine x factory preset, the GM drum kit and each synthesised one, the voice
+ *    modes (POLY / MONO / LEGATO / UNISON) of three engines, the FX sends, a 4-track sequencer mix, and
+ *    the SLICER (slicer.c: GATE / STUT on the phrase, and on the 4-track mix with the transport). Each render plays
  *    a fixed phrase (notes, an overlap, a chord, note-offs, the release tail) and is reduced to a
  *    64-bit FNV-1a hash of its output samples, compared with GOLDEN_FILE (tests/golden.txt).
  *    Every render runs in its own fork()ed child of a process that never touched the DSP state, so
@@ -207,11 +207,13 @@ static void job_sends(const job_t *j)           /* arg: 0 dry, 1 chorus, 2 delay
     phrase(t, 60);
 }
 
-static void job_drums(const job_t *j)           /* every GM note through the drum track, a choke, a roll */
+/* every GM note through the drum track, a choke, a roll; arg: 0 the kit set at boot, else kit arg - 1 */
+static void job_drums(const job_t *j)
 {
     uint32_t n, k = 0;
-    (void)j;
     host_tracks_init();
+    if (j->arg)
+        TDRUM->p[P_E0] = (int16_t)(j->arg - 1u);
     for (n = 35; n <= 81u; n++, k++) {
         input_on(TDRUM, n, 60u + (n * 7u) % 60u);
         run_to(at(0.06 * (k + 1)));
@@ -774,6 +776,11 @@ int main(int argc, char **argv)
             j->pi = (uint8_t)pi;
         }
     add(J_DRUMS, "drums/gm_kit");
+    for (i = DRUM_SAMPLED; i < DRUM_KITS; i++) {    /* every synthesised kit */
+        slug(s, DRUM_KIT_NAMES[i], sizeof s);
+        snprintf(name, sizeof name, "drums/kit/%s", s);
+        add(J_DRUMS, name)->arg = (uint8_t)(i + 1u);
+    }
     for (i = 0; i < 3u; i++)
         for (k0 = 0; k0 < 4u; k0++) {
             job_t *j;
