@@ -478,6 +478,105 @@ int UI_TEST_MAIN(int argc, char **argv)
         ui.menu = 0; ui.force = 1; go_home(); frame();
     }
 
+    {   /* menu PUNCH (after majnikool, isod89/sloop-fm1 #28): HOLD, the effect while its key is held; LATCH, a key
+         * switches it on and it stays with FX let go: another key changes it, the same key ends it, STOP / the
+         * song's end / a load end it; FILL (black keys) stays held; FX lit and the headers show it while it is on */
+        uint32_t x, disc, name, n;
+        uint8_t sel0;
+        #define ROW(y, x0, x1, v) do { v = 0; for (x = (x0); x < (x1); x++) v |= swap16(screen[(y) * 240 + x]) == TE_DRUM; } while (0)
+        song.sel = 0; song.octave = 0; song.solo = 0; song.rec = 0; go_home(); ui.force = 1; frame();
+        check(punch_latch == 0u && punch.req == -1 && !punch_led(), "PUNCH: HOLD by default, no effect, FX not lit");
+        ui.menu = 1; ui.menu_sel = MI_PUNCH; ui.force = 1; frame(); ppm("menu-punch");
+        encs[panel.enc[EN_K1]] = 1; frame();
+        check(punch_latch == 1u && (lights_word() >> 14 & 1u) == 1u, "menu PUNCH: KNOB 1 right -> LATCH, saved with the settings");
+        tap(B_OCTUP); check(punch_latch == 0u && ui.menu == 1, "menu PUNCH: OCT+ toggles back to HOLD");
+        tap(B_OCTUP); check(punch_latch == 1u, "menu PUNCH: OCT+ again: LATCH");
+        ui.menu = 0; ui.force = 1; go_home(); frame();
+        press(B_FX); frames(12); ui.force = 1; frame(); ppm("layer-punch-latch");
+        fm1_in.notes = 1u << 4; frame();
+        check(punch.req == 2 && !punch.keybit, "LATCH: FX + the 3rd white key: effect 3 on");
+        fm1_in.notes = 0; frame();
+        check(punch.req == 2 && keys_lit() == 1u << 4 && !punch_led(), "LATCH: the key up, it stays; its key lit in the layer");
+        ui.force = 1; frame(); ppm("layer-punch-latched");
+        key(7); check(punch.req == 4, "LATCH: another key (C4) changes the effect");
+        fm1_in.notes = 1u << 1; frame();
+        check(fill_keys == 2u && punch.req == 4 && keys_lit() == (1u << 7 | 1u << 1), "LATCH: a black key: FILL while held, the effect stays");
+        fm1_in.notes = 0; frame();
+        check(!fill_keys && punch.req == 4, "the black key up: FILL off (held, as with HOLD), the effect stays");
+        key(7); check(punch.req == -1, "LATCH: the same key again: off");
+        key(4); release(B_FX); frames(20);
+        check(punch.req == 2 && punch.cur == 2 && ui.layer == LY_PLAY && punch_led(), "LATCH: FX let go, the effect plays on, FX lit");
+        go_home(); ui.force = 1; frame(); ppm("tracks-punch-latched");
+        ROW(29, 144, 153, disc); ROW(29, 156, 200, name);
+        check(disc && name, "LATCH: TRACKS shows it (a disc and its name under the loop position)");
+        song.solo = 1; ui.force = 1; frame();
+        ROW(29, 144, 153, disc); ROW(29, 156, 200, name);
+        check(disc && !name, "LATCH: TRACKS with a solo: the disc, the name gives way to \"solo\"");
+        song.solo = 0;
+        open_family(FAM_ENV); ui.force = 1; frame(); ppm("page-punch-latched");
+        ROW(9, 60, 156, disc);
+        check(disc, "LATCH: a sound page's top bar shows it");
+        song.octave = 1; ui.force = 1; frame();
+        ROW(9, 143, 152, disc); ROW(9, 60, 140, name);
+        check(disc && !name, "LATCH: an octave shown: the disc only");
+        song.octave = 0;
+        sel0 = song.sel;
+        encs[panel.enc[EN_ALGO]] = 1; frame(); tap(B_LFO); frames(2);
+        check(song.sel != sel0 && punch.req == 2, "LATCH: another track, another page: it stays");
+        press(B_FX); frames(12); key(4); release(B_FX); frames(4);
+        check(punch.req == -1 && !punch_led(), "LATCH: FX + its key from anywhere: off, FX dark");
+        open_family(FAM_ENV); ui.force = 1; frame();
+        ROW(9, 60, 156, disc);
+        go_home(); ui.force = 1; frame();
+        ROW(29, 120, 200, name);
+        check(!disc && !name, "LATCH: off, the headers clear");
+        song.sel = sel0;
+        press(B_FX); frames(12); key(4); release(B_FX); frames(2);
+        tap(B_PLAY); frames(4); check(song.playing && punch.req == 2, "LATCH: on, then PLAY: it stays");
+        tap(B_PLAY); frames(4); check(!song.playing && punch.req == -1, "LATCH: STOP ends it");
+        live_req = -1; live_sec = -1; arrangement_enabled = 0;
+        press(B_FX); frames(12); key(4); release(B_FX); frames(2);
+        tap(B_PLAY); frames(2);
+        live_req = 1;
+        for (n = 0; n < 400u && live_req >= 0; n++) frame();
+        check(live_req == -1 && live_sec == 1 && punch.req == 2, "LATCH: a live section change (next bar): it stays");
+        tap(B_PLAY); frames(4);
+        arrangement.count = 2; arrangement.loop = 0;
+        arrangement.entry[0].scene = 0; arrangement.entry[0].bars = 1;
+        arrangement.entry[1].scene = 1; arrangement.entry[1].bars = 1;
+        arrangement_enabled = 1;
+        press(B_FX); frames(12); key(4); release(B_FX); frames(2);
+        tap(B_PLAY); frames(2);
+        check(song.playing && arrangement_clock.running && punch.req == 2, "LATCH: song mode, PLAY: it stays");
+        for (n = 0; n < 400u && arrangement_clock.index == 0u; n++) frame();
+        check(arrangement_clock.index == 1u && song.playing && punch.req == 2, "LATCH: the song's next section: it stays");
+        press(B_FX); frames(12); key(4);
+        check(punch.req == -1, "LATCH: in the song, FX + its key: off");
+        key(4); release(B_FX); frames(2);
+        for (n = 0; n < 400u && song.playing; n++) frame();
+        check(!song.playing && punch.req == -1, "LATCH: the song's end ends it");
+        arrangement_enabled = 0; arr_defaults(&arrangement);
+        press(B_FX); frames(12); key(4); release(B_FX); frames(2);
+        transport_req = 2; frames(2);                 /* stopped, a project / section loaded: project_apply asks a stop */
+        check(punch.req == -1, "LATCH: a load (stopped) ends it");
+        press(B_FX); frames(12); key(4); release(B_FX); frames(2);
+        lights_from_word(lights_word() & ~(1u << 14));
+        check(punch_latch == 0u && punch.req == -1, "settings restored with HOLD: a latched effect ends");
+        lights_from_word(lights_word() | 1u << 14);
+        check(punch_latch == 1u, "settings restored with LATCH: LATCH");
+        press(B_FX); frames(12); key(4); release(B_FX); frames(2);
+        ui.menu = 1; ui.menu_sel = MI_PUNCH; ui.force = 1; frame();
+        encs[panel.enc[EN_K1]] = -1; frame();
+        check(punch_latch == 0u && punch.req == -1, "menu PUNCH: KNOB 1 left -> HOLD, a latched effect ends");
+        ui.menu = 0; ui.force = 1; go_home(); frame();
+        press(B_FX); frames(12); fm1_in.notes = 1u << 4; frame();
+        check(punch.req == 2 && punch.keybit == 1u << 4, "HOLD again: FX + key: the effect while held ...");
+        fm1_in.notes = 0; frame(); release(B_FX); frames(2);
+        check(punch.req == -1, "... and gone with the key, as before");
+        frames(4);
+        #undef ROW
+    }
+
     {   /* menu LIGHTS / KEYS: the backlight for playing in the dark */
         uint32_t m, nbits;
         go_home(); ui.force = 1; frame();

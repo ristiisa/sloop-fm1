@@ -1,7 +1,7 @@
 /* SPDX-License-Identifier: GPL-3.0-only */
 /* PUNCH-IN FX, pocket-operator style: hold FX, press a white key (16 of them, F3..G5) and the
  * whole mix goes through that effect while the key is held; release it and the mix comes
- * back. Beat-synced to the tempo; loops start on the grid of the running transport.
+ * back (menu PUNCH LATCH: a key switches it on and off). Beat-synced to the tempo; loops start on the grid of the running transport.
  * A mono ring of the mix (PUNCH_N samples, 0.74 s) feeds the loops, reverse, tape stop,
  * half speed, wobble and echo; the filters, crush and gate run in stereo. Every change
  * crossfades over 64 samples. Runs in the audio ISR (mix_block, fx.c). */
@@ -14,6 +14,9 @@ enum { PX_LOOP4, PX_LOOP8, PX_LOOP16, PX_LOOP32, PX_STUT, PX_REV, PX_STOP, PX_HA
 static const char *const PUNCH_NAME[PUNCH_NFX] = {
     "LOOP 4", "LOOP 8", "LOOP 16", "LOOP 32", "STUTTER", "REVERSE", "STOP", "HALF",
     "LOW", "HIGH", "PHONE", "CRUSH", "ALIAS", "GATE", "ECHO", "WOBBLE"};
+static const char *const PUNCH_SHORT[PUNCH_NFX] = {      /* the FX layer's tiles, the headers (ui_layers.c, ui_studio.c) */
+    "loop 4", "loop 8", "loop16", "loop32", "stutt", "rev", "stop", "half",
+    "low", "high", "phone", "crush", "alias", "gate", "echo", "wobble"};
 static int16_t punch_ring[PUNCH_N] __attribute__((section(".pool")));
 static struct {
     volatile int8_t req;          /* effect asked for by the keys (-1 none), ISR keyboard_block */
@@ -34,6 +37,28 @@ static struct {
     int32_t f1l, f2l, f1r, f2r, f3l, f4l, f3r, f4r;   /* filter states */
     int32_t cut;                  /* sweep, 0..127 << 8 */
 } punch = {.req = -1, .cur = -1};
+/* menu PUNCH (after majnikool, isod89/sloop-fm1 #28): 0 HOLD, the effect while its key is held; 1 LATCH, a key
+ * switches it on and it stays with the key up (keybit 0): the same key again switches it off, another key changes
+ * it, STOP ends it (seq.c key_down, seq_stop). FILL (the black keys) stays held either way. A setting of the FM-1
+ * (panel.c lights_word), not of a project */
+static uint8_t punch_latch;
+static void punch_unlatch(void)                 /* an effect no key holds ends (STOP, back to HOLD) */
+{
+    if (!punch.keybit)
+        punch.req = -1;
+}
+/* FX held + white key k down: effect fx (seq.c key_down, audio ISR). Out of line: the ISR's events_block
+ * stays small enough to be inlined as before */
+static __attribute__((noinline)) void punch_press(int32_t fx, uint32_t k)
+{
+    if (punch_latch) {                          /* LATCH: on, the same key again off; no key-up ends it */
+        punch.req = (int8_t)(punch.req == fx ? -1 : fx);
+        punch.keybit = 0;
+    } else {
+        punch.req = (int8_t)fx;
+        punch.keybit = 1u << k;
+    }
+}
 
 static uint32_t beat_samples(void) { return (uint32_t)FS * 60u / (uint32_t)song.g[G_BPM]; }
 

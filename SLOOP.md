@@ -17,6 +17,7 @@ SLOOP is free and open source (GPL-3.0), based on [Felucca](https://github.com/h
 - **Parameter locks.** A step can have its own sound: lock SEQ open (SEQ + HOME), tap ENV, LFO, FX or EDIT, hold steps and turn a knob (8 locks a step, 56 a project; OCT− with steps held clears them). See [P-LOCK](#p-lock--a-steps-own-sound).
 - **MUTATE.** EDIT + **KNOB 4**: each click right varies the pattern a little, left takes it back.
 - **DICE.** EDIT + **PRESETS**: each click right rolls a new pattern for the selected track — a groove on the drum track, a bass line, a melody or chords in the song's key on a synth track — in a style (EDIT + **ALGORITHM**: HOUSE, TRAP, BOOM BAP, BREAK, AMAPIANO, DNB, RANDOM, or KIT: the style of the drum kit); left goes back through the rolls to your own pattern. See [EDIT — erase](#edit--erase).
+- **Punch-in LATCH.** HOME menu → **PUNCH**: **LATCH** — FX + a white key switches its effect on and it stays with both hands free; the same key switches it off, another key changes it, STOP ends it. FX stays lit and the headers show the effect while it is on. FILL (the black keys) is still held. After majnikool. See [FX — punch](#fx--punch).
 - **Inverted screen.** HOME → COLOR: **INV BW** and **INV GRN** turn the panel into its negative — a white screen with dark text, much brighter on a dim panel (the track colours invert too).
 
 ### New in 2.3
@@ -125,7 +126,7 @@ The tiles are four rows of four, keys 1–4, 5–8, 9–12, 13–16. To find the
 
 | Hold | Keys | KNOB 1 · 2 · 3 · 4 | Tap |
 | --- | --- | --- | --- |
-| **FX** — *punch* | white: a punch-in effect while the key is held · black: **FILL** while held | FILTER · DUST · DUCK · — | FX pages |
+| **FX** — *punch* | white: a punch-in effect while the key is held (menu PUNCH LATCH: on / off) · black: **FILL** while held | FILTER · DUST · DUCK · — | FX pages |
 | **EDIT** — *erase* | erase that sound / note from the pattern | SHIFT · LENGTH ×2 / ½ · TRANSPOSE · MUTATE (PRESETS: DICE, ALGORITHM: its style) | EDIT pages (drums: grid / kit) |
 | **ARP** — *roll* | note repeat on the grid | RATE · — · — · — | ARP pages |
 | **SEQ** — *steps* | steps 1–16 of the page | SOUND / NOTE · DIV · SWING · LENGTH (a step held: SOUND / NOTE · LEVEL · RATCHET · CONDITION) | SEQ pages (drums: grid / kit) |
@@ -148,7 +149,7 @@ Other controls:
 | **PRESETS** | the selected track's sound, or the drum kit |
 | **SELECT** | tempo (always, even inside a layer) |
 | **OCT− / OCT+** | synth tracks: octave (both: back to 0) · drum track, held: ghost / hard hits |
-| **HOME** | the TRACKS screen · hold: menu (colour, low cut, zoom, lights, keys, notes, USB audio, calibration, about) · tapped while a layer is held: lock it open |
+| **HOME** | the TRACKS screen · hold: menu (colour, low cut, zoom, lights, keys, notes, USB audio, punch hold / latch, calibration, about) · tapped while a layer is held: lock it open |
 | **ENV / LFO** | their pages |
 
 ## The drum track
@@ -201,6 +202,8 @@ MODE and START are settings of the FM-1: they stay as you left them. In a projec
 The 16 white keys are the [punch-in effects](#punch-in-effects); they run while the key is held. The knobs drive the [master](#master-dust-duck-filt): **KNOB 1 FILTER** (turn left: low-pass, right: high-pass, centre: off), **KNOB 2 DUST**, **KNOB 3 DUCK**. Keys pressed while FX is held never play or record notes.
 
 **FILL:** hold FX and any **black key** — FILL is on as long as the key is held (let go of FX first and the key keeps it on, both hands free; FX locked with HOME works too). Steps set to **FILL** play only then, steps set to **!FILL** only when it is off: a drum fill, a crash, a busier bass for the last bar before the drop. The held black key lights up.
+
+**LATCH** (HOME menu → **PUNCH**: HOLD / LATCH, after majnikool's pull request): with **LATCH**, FX + a white key switches its effect on and it stays when you let go of the key and of FX — both hands free. The same key again (with FX) switches it off, another key changes it, **STOP** ends it (so do the end of a song and loading a project or a section; a song going from section to section keeps it). The layer's subtitle reads *key: on/off*. While an effect is on outside the FX layer, the **FX** button stays lit, and the headers show a disc in the FX layer's colour with the effect's name (TRACKS and the drum screens under the loop position; the sound pages in the top bar, the disc only when an octave or P-LOCK is shown) — a latched effect is never invisible. FILL stays as it is: on while its black key is held. Back to **HOLD** ends a latched effect. PUNCH is a setting of the FM-1, saved with the lights, not with a project.
 
 ### EDIT — erase
 
@@ -309,7 +312,7 @@ On the whole mix, after the tracks' sends (FX + KNOB 1–3, or GLO → MASTER):
 
 ## Punch-in effects
 
-Hold **FX**, then hold a white key — the 16 white keys from the lowest F to the highest G. The effect runs on the whole mix while the key is held and lets go cleanly when you release it. Loops and the gate are locked to the tempo and start on the grid.
+Hold **FX**, then hold a white key — the 16 white keys from the lowest F to the highest G. The effect runs on the whole mix while the key is held and lets go cleanly when you release it (HOME menu → PUNCH **LATCH**: a key switches it on and off, see [FX — punch](#fx--punch)). Loops and the gate are locked to the tempo and start on the grid.
 
 | Key | Effect | Key | Effect |
 | --- | --- | --- | --- |
@@ -444,7 +447,7 @@ USB AUDIO is a setting of the FM-1: it stays as you left it. MIDI, the web edito
 
 ## Lights
 
-Hold **HOME** for the menu: **LIGHTS**, **KEYS** and **NOTES** are together there (with **USB AUDIO**, the level of the USB audio input: see [USB audio](#usb-audio-record-on-a-computer)). PRESETS moves, **KNOB 1** sets, OCT+ steps round, OCT− closes. They are saved with the settings of the FM-1, not with a project: loading a project or NEW PROJECT does not change them.
+Hold **HOME** for the menu: **LIGHTS**, **KEYS** and **NOTES** are together there (with **USB AUDIO**, the level of the USB audio input: see [USB audio](#usb-audio-record-on-a-computer), and **PUNCH**, HOLD or LATCH for the punch-in effects: see [FX — punch](#fx--punch)). PRESETS moves, **KNOB 1** sets, OCT+ steps round, OCT− closes. They are saved with the settings of the FM-1, not with a project: loading a project or NEW PROJECT does not change them.
 
 - **LIGHTS** — OFF, LOW, MID, HIGH: every button glows at that level, so its label can be read in the dark (on a black FM-1 the labels are unreadable unlit). What is on — the page, PLAY, REC, an octave — stays at full light and still blinks as before.
 - **KEYS** — OFF, C KEYS, WHITE KEYS: the Cs, or every white key, glow at the LIGHTS level too (KEYS turns LIGHTS on at LOW if it was off). Played keys and the layer landmarks keep their own light.
@@ -473,5 +476,5 @@ The glow is a short pulse on every scan of the panel (about 900 times a second):
 - **USB rescue:** hold **OCT−** alone while switching on (*SLOOP USB RESCUE*), then install again.
 - **Interrupted install:** the FM-1 stays in update mode; press Install again and it finishes. A damaged package is refused, and the FM-1 keeps waiting for a good one.
 - **Back to the official firmware:** on the installer page, open **Return to the official firmware (V15)**: save a backup with the editor first, download FM-1 V15 from m-vave.com, select its FM-1.fwsc (only that exact file is accepted) and install it. M-VAVE's own updater, M-UPGRADE, works too (close every other app that uses MIDI first). To come back to SLOOP, install it again and restore your backup.
-- **Credits:** SLOOP is based on Felucca by Leo Kuroshita (@kurogedelic), Hügelton Instruments — engines, sequencer, editor and installer. Played-note key lights: @renebohne (pull request #11). TRS MIDI input buffer fix: Felucca [Salt] by ChanceTheMaker, found by keremimo. Knob reading, MIDI input, overload shedding, LED glow, key debounce, MIDI clock, the USB audio input and the return to the official firmware after Felucca 1.0 / 1.0.1. Font: Terminus (SIL OFL 1.1). Samples: Versilian Studios VSCO-2 CE and VCSL, Sonic Pi (all CC0). PHASE: CrispyZebra (GPL). VOICE after klattsch (MIT). Interface ideas after teenage engineering's pocket operators and EP-133, Elektron's step entry and Akai's MPC (swing, note repeat, erase) — SLOOP is not affiliated with any of them.
+- **Credits:** SLOOP is based on Felucca by Leo Kuroshita (@kurogedelic), Hügelton Instruments — engines, sequencer, editor and installer. Played-note key lights: @renebohne (pull request #11). Punch-in LATCH: after majnikool (isod89/sloop-fm1 pull request #28, GPL-3.0). TRS MIDI input buffer fix: Felucca [Salt] by ChanceTheMaker, found by keremimo. Knob reading, MIDI input, overload shedding, LED glow, key debounce, MIDI clock, the USB audio input and the return to the official firmware after Felucca 1.0 / 1.0.1. Font: Terminus (SIL OFL 1.1). Samples: Versilian Studios VSCO-2 CE and VCSL, Sonic Pi (all CC0). PHASE: CrispyZebra (GPL). VOICE after klattsch (MIT). Interface ideas after teenage engineering's pocket operators and EP-133, Elektron's step entry and Akai's MPC (swing, note repeat, erase) — SLOOP is not affiliated with any of them.
 - **Licence:** GPL-3.0, no warranty. M-VAVE and FM-1 are trademarks of their owners; SLOOP is not affiliated with them. Drum kit names describe styles; they do not refer to any product.
