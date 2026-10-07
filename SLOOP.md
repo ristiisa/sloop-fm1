@@ -12,6 +12,7 @@ SLOOP is free and open source (GPL-3.0), based on [Felucca](https://github.com/h
 
 - **Step conditions and FILL.** Every step can play always, by chance (12–88 %), on pass *a* of every *b* (1:2 … 4:4), only on the first pass or never on it, or only with FILL held (or only without): SEQ + a step held + **KNOB 4**. **FILL**: hold FX and a black key while it plays. See [SEQ — steps](#seq--steps-step-sequencer).
 - **A deeper arpeggiator.** 14 modes (CONV, DIVG, THMB, PNKY, DRNK, SHUF, OCTI, CHRD…), accents, euclidean HITS of STEPS, ratchets, and on ARP 4: ROT, SYNC (note / bar / free), 15 rhythms and DEJA (randomness that repeats). See [ARP pages](#arp-pages--the-arpeggiator).
+- **Parameter locks.** A step can have its own sound: lock SEQ open (SEQ + HOME), tap ENV, LFO, FX or EDIT, hold steps and turn a knob (8 locks a step, 56 a project; OCT− with steps held clears them). See [P-LOCK](#p-lock--a-steps-own-sound).
 - **MUTATE.** EDIT + **KNOB 4**: each click right varies the pattern a little, left takes it back.
 - **High-contrast screen.** HOME → COLOR: **HI MONO** and **HI GRN** for a dim panel.
 
