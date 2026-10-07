@@ -46,6 +46,7 @@ assets, is entirely governed by the GPL.
 | Terminus font 8x16 (ter-u16n) | SIL OFL 1.1 | `assets/fonts/ter-u16n.bdf`, `assets/fonts/Terminus-LICENSE.txt` |
 | Fukiai icon font (Hügelton Instruments), web editor only | MIT | `web/fukiai.ttf`, `web/FUKIAI-LICENSE.txt` |
 | CrispyZebra by Leo Kuroshita (<https://github.com/hugelton/CrispyZebra>): the PHASE engine's waveforms are a C port of its oscillator | GPL-3.0 | `firmware/src/eng_phase.c` |
+| TB-3PO generator from X0X by Charles Vestal (<https://github.com/charlesvestal/fm1-x0x>, `firmware/src/seq/tb3po.c`), itself a port of schwung-tb3po and of the Phazerville Hemisphere Suite `TB_3PO` applet (djphazer and contributors), originally Copyright (c) 2020 Logarhythm (MIT): DICE's ACID style is a C port of its algorithm | GPL-3.0 (the original applet MIT) | `firmware/src/dice.c` (`dice_acid`) |
 | klattsch by Tony Gies (<https://github.com/tgies/klattsch>): design reference for the VOICE (formant) engine; no code copied. Formant data from Klatt (1980) / Hillenbrand et al. (1995) | MIT (klattsch) | credit only |
 | JieLi AC79 SDK: `uboot.boot`, `cfg_tool.bin`, `eq_cfg_hw.bin` are read from your SDK checkout at build time and placed in the package; no SDK files are in this tree | Apache-2.0 | <https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK> |
 

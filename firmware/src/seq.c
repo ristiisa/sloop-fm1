@@ -586,9 +586,9 @@ static uint32_t mut_level(uint32_t lv)            /* a level one softer or loude
 static int mut_tied(const track_t *t, uint32_t i) { return t->step[(i + 1u) % trk_len(t)].time == ST_TIE; }
 static int ms_note(const track_t *t, uint32_t i, uint32_t k) { return t->step[i].time == ST_NOTE && k < t->step[i].n && k < 4u; }
 static int ms_rat(const track_t *t, uint32_t i, uint32_t k) { return ms_note(t, i, k) && ((t->step[i].rat >> (2u * k)) & 3u); }
-static int ms_norat(const track_t *t, uint32_t i, uint32_t k)   /* (a TIE after it: no ratchet, it holds on) */
+static int ms_norat(const track_t *t, uint32_t i, uint32_t k)   /* (a TIE after it or a slide: no ratchet, it holds on) */
 {
-    return ms_note(t, i, k) && !((t->step[i].rat >> (2u * k)) & 3u) && !mut_tied(t, i);
+    return ms_note(t, i, k) && !((t->step[i].rat >> (2u * k)) & 3u) && !mut_tied(t, i) && !(t->step[i].flags & SF_SLIDE);
 }
 static int ms_empty(const track_t *t, uint32_t i, uint32_t k) { return !k && t->step[i].time != ST_TIE && !ms_note(t, i, 0); }
 static int ms_single(const track_t *t, uint32_t i, uint32_t k) { return !k && ms_note(t, i, 0) && t->step[i].n == 1u && !mut_tied(t, i); }

@@ -8,15 +8,17 @@
  *   synth  a bass line, a melody or (CHORD on, POLY) the chords of the scale, over a progression, in the
  *          style's rhythm: the notes in the scale, in the register of the notes the track had (else of
  *          its sound: a bass around C2, the rest around C4), ties, slides, levels, a few ratchets
+ *   ACID   synth: a 303 line (dice_acid); drums: HOUSE as acid house (open hats off the beat, 16th hats)
  * A roll writes every step within LEN (no condition, no lock left there), the steps past it stay. It
  * depends only on its seed, its style and the track's LEN, key, chord and voice mode (the register is
  * taken once, at the first roll): the rolls kept turn back exactly while those stay. */
-enum { DS_KIT, DS_HOUSE, DS_TRAP, DS_BOOMBAP, DS_BREAK, DS_AMAPIANO, DS_DNB, DS_RANDOM, DS_COUNT };
-static const char *const N_DICE[DS_COUNT] = {"KIT", "HOUSE", "TRAP", "BOOM BAP", "BREAK", "AMAPIANO", "DNB", "RANDOM"};
+enum { DS_KIT, DS_HOUSE, DS_TRAP, DS_BOOMBAP, DS_BREAK, DS_AMAPIANO, DS_DNB, DS_ACID, DS_RANDOM, DS_COUNT };
+static const char *const N_DICE[DS_COUNT] = {"KIT", "HOUSE", "TRAP", "BOOM BAP", "BREAK", "AMAPIANO", "DNB", "ACID", "RANDOM"};
 #define DICE_DEPTH 16u                   /* rolls kept to turn back */
 static struct {
     uint8_t n, trk;                      /* rolls kept, their track */
     uint8_t bass, lo, hi;                /* synth: a bass line, the register (from the first roll) */
+    uint8_t acid[3];                     /* the last ACID line's density, accent and slide (%) */
     uint32_t sum, ctx;                   /* the pattern after the last roll, the parameters it was rolled with */
     uint32_t seed[DICE_DEPTH];
     uint8_t style[DICE_DEPTH];
@@ -101,7 +103,8 @@ static void dice_groove(uint32_t style)          /* the style's bar */
     memset(dice_bar, 0, sizeof dice_bar);
     switch (style) {
     case DS_HOUSE:                                /* four on the floor, the clap on 2 and 4, open hats off the beat */
-        l = dchance(75) ? LANE_OPEN : LANE_RIDE;
+    case DS_ACID:                                 /* (acid house: always the open hats, the 16th hats between) */
+        l = dchance(75) || style == DS_ACID ? LANE_OPEN : LANE_RIDE;
         for (i = 0; i < 16u; i += 4u) {
             dh(i, LANE_KICK, i ? LV_NORM : LV_HARD, 0);
             dh(i + 2u, l, LV_NORM, 0);
@@ -112,7 +115,7 @@ static void dice_groove(uint32_t style)          /* the style's bar */
             dh(4, LANE_SNARE, LV_SOFT, 0);
             dh(12, LANE_SNARE, LV_SOFT, 0);
         }
-        k = drnd(3);
+        k = style == DS_ACID ? 0u : drnd(3);
         for (i = 0; i < 16u && k < 2u; i++)       /* closed hats between: the 16ths, or the odd ones */
             if (k ? i & 1u : i % 4u != 2u)
                 dh(i, LANE_HAT, i % 4u == 0u ? LV_SOFT : dchance(50) ? LV_GHOST : LV_SOFT, 0);
@@ -267,7 +270,7 @@ static void dice_vary(uint32_t style)
         s = &dice_cur[i = drnd(16)];
         switch (drnd(4)) {
         case 0:                                   /* a ghost snare (rim) comes or goes off the beat */
-            l = style == DS_HOUSE || style == DS_AMAPIANO ? LANE_RIM : LANE_SNARE;
+            l = style == DS_HOUSE || style == DS_ACID || style == DS_AMAPIANO ? LANE_RIM : LANE_SNARE;
             if (!(i % 4u))
                 break;
             if (!dstep_has(s, l))
@@ -510,6 +513,62 @@ static void dice_synth(track_t *t, uint32_t style, uint32_t len)
     }
 }
 
+/* -------------------------------------------------------------- acid --- */
+/* ACID: a 303 line. Ported from the TB-3PO generator of X0X (fm1-x0x, firmware/src/seq/tb3po.c) by Charles
+ * Vestal, GPL-3.0-only: "A port of schwung-tb3po's generator (itself a port of the Phazerville Hemisphere
+ * Suite TB_3PO applet, (c) djphazer and contributors, GPL-3.0)"; the applet Copyright (c) 2020 Logarhythm
+ * (MIT). A step a note at the density (on the beat often the root), a degree of the scale (CHR: minor) in one
+ * or two octaves up from the root nearest the register, an accent (HARD) or else a slide at their chance; a
+ * slide into a rest goes. Here also: density, accent and slide rolled around TB-3PO's 70 / 40 / 25 %, a rest
+ * after a note now and then a tie (the slide moves on to it), the notes not accented NORM or SOFT, no slide
+ * out of LEN. */
+static void dice_acid(track_t *t, uint32_t len)
+{
+    uint32_t mask = t->p[P_SCALE] ? scale_mask(t) : SCALE_MASK[2], degs = 0, deg, acc, iv, i, any = 0;
+    uint32_t oct = dchance(80) ? 2u : 1u;
+    int32_t base = dice.lo + ((t->p[P_ROOT] - dice.lo + 6) % 12 + 12) % 12 - 6;
+    step_t *s;
+    dice.acid[0] = (uint8_t)(55u + drnd(31));
+    dice.acid[1] = (uint8_t)(25u + drnd(31));
+    dice.acid[2] = (uint8_t)(15u + drnd(21));
+    for (iv = 0; iv < 12u; iv++)
+        degs += (mask >> iv) & 1u;
+    for (i = 0; i < len; i++) {
+        s = &t->step[i];
+        memset(s, 0, sizeof *s);
+        s->time = ST_REST;
+        if (!dchance(dice.acid[0])) {
+            if (i && s[-1].time != ST_REST && dchance(25)) {
+                s->time = ST_TIE;
+                s->flags = s[-1].flags;
+                s[-1].flags = 0;
+            }
+            continue;
+        }
+        deg = i % 4u == 0u && dchance(35) ? 0u : drnd(degs);
+        for (iv = 0; !((mask >> iv) & 1u) || deg--; iv++)   /* (the deg-th note of the scale) */
+            ;
+        s->n = 1;
+        s->note[0] = (uint8_t)(base + (int32_t)iv + 12 * (int32_t)drnd(oct));
+        s->time = ST_NOTE;
+        s->vel = 100;
+        acc = dchance(dice.acid[1]);
+        s->flags = (uint8_t)(dchance(dice.acid[2]) ? SF_SLIDE : 0u);
+        s->lvl = (uint8_t)(acc && !s->flags ? LV_HARD : (i & 1u) && dchance(30) ? LV_SOFT : LV_NORM);
+        any = 1;
+    }
+    for (i = 0; i < len; i++)
+        if (i + 1u >= len || t->step[i + 1u].time != ST_NOTE)
+            t->step[i].flags = 0;
+    if (!any) {
+        s = &t->step[0];
+        s->n = 1;
+        s->note[0] = (uint8_t)base;
+        s->time = ST_NOTE;
+        s->vel = 100;
+    }
+}
+
 /* ---------------------------------------------------------- the rolls --- */
 static uint32_t dice_ctx(const track_t *t)       /* what a roll depends on: LEN, the key, the chords, the voice */
 {
@@ -538,6 +597,8 @@ static void dice_make(track_t *t, uint32_t style, uint32_t seed)
         plk_gen++;
     if (is_drum(t))
         dice_drums(t, style, len);
+    else if (style == DS_ACID)
+        dice_acid(t, len);
     else
         dice_synth(t, style, len);
     t->seq_active = 1;

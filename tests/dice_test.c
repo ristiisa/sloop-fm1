@@ -9,10 +9,14 @@
  *   synth  bass, melody, chords (CHORD on, POLY), mono with CHORD on, scales and keys: the notes in the
  *          scale and the register, <= 4 a step (mono: 1), the chords the scale's, ties after a note, no
  *          ratchet held into a tie, a slide into a note; a bass sound around C2, the notes there were kept
+ *   ACID   synth: thousands of 303 lines: mono, in the scale (CHR: minor) and its two octaves, slides
+ *          only into notes (none ratcheted, after mutating too), ties after a note, the density and
+ *          accents as rolled, the root on the beat often; drums: HOUSE's floor with open hats off the beat
  *   back   20 rolls, 15 turned back: each roll again exactly, then the pattern before the first (its
  *          conditions and locks); a pattern or key changed since: nothing to turn back
  *   UI     EDIT + PRESETS: a roll (DICE TRAP 1 on the 808 kit), each one undo (OCT- / OCT+ exactly),
- *          left: the roll before; EDIT + ALGORITHM: the style; the same seed: the same roll
+ *          left: the roll before; EDIT + ALGORITHM: the style (ACID on a synth track); the same seed:
+ *          the same roll
  * Exit status: the number of failed checks. */
 #define UI_TEST_MAIN ui_main
 #include "ui_pages_test.c"
@@ -113,6 +117,11 @@ static const char *drum_bad(const track_t *t, uint32_t style, const snap_t *init
         case DS_AMAPIANO:
             if (!dstep_has(s, LANE_SHAKER))
                 return "AMAPIANO: a 16th without its shaker";
+            break;
+        case DS_ACID:
+            if ((b % 4u == 0u && !dstep_has(s, LANE_KICK)) || (b % 4u == 2u && !dstep_has(s, LANE_OPEN)) ||
+                ((b == 4u || b == 12u) && !dstep_has(s, LANE_CLAP)))
+                return "ACID: a beat without its kick, an off beat without its open hat, 2 / 4 without the clap";
             break;
         default:
             break;
@@ -246,7 +255,7 @@ static void synth_case(uint32_t ti, uint32_t root, uint32_t scale, uint32_t voic
     snap(t, &init);
     memset(&st, 0, sizeof st);
     dice.n = 0;                                    /* (a new journal: the register of this pattern) */
-    for (style = DS_HOUSE; style < DS_COUNT && !why; style++)
+    for (style = DS_HOUSE; style < DS_COUNT && !why; style += style + 1u == DS_ACID ? 2u : 1u)
         for (r = 0; r < 500u && !why; r++) {
             dice_roll(t, style, bass);
             why = synth_bad(t, &init, &st);
@@ -259,6 +268,105 @@ static void synth_case(uint32_t ti, uint32_t root, uint32_t scale, uint32_t voic
        (role_of(t) == 2u || st.slides > 50u), what);
 }
 
+/* ---- ACID: 303 lines */
+typedef struct { uint32_t notes, hard, slides, ties, high, beats, beat_root, offs, off_root, distinct; double want_n, want_h; } astat_t;
+static uint32_t acid_mask(const track_t *t) { return t->p[P_SCALE] ? scale_mask(t) : SCALE_MASK[2]; }
+static const char *acid_bad(const track_t *t, const snap_t *init, astat_t *st)
+{
+    uint32_t len = trk_len(t), i, mask = acid_mask(t), notes = 0, hard = 0;
+    int32_t base = dice.lo + ((t->p[P_ROOT] - dice.lo + 6) % 12 + 12) % 12 - 6;
+    const char *why = past_len(t, init);
+    if (why)
+        return why;
+    if (dice.acid[0] < 55u || dice.acid[0] > 85u || dice.acid[1] < 25u || dice.acid[1] > 55u || dice.acid[2] < 15u || dice.acid[2] > 35u)
+        return "density / accent / slide rolled out of their range";
+    for (i = 0; i < len; i++) {
+        const step_t *s = &t->step[i];
+        if (s->rat || s->time > ST_REST)
+            return "a ratchet, or a step time out of range";
+        if (s->time != ST_NOTE) {
+            if (s->n || s->lvl || (s->time == ST_REST && s->flags))
+                return "a TIE / REST that holds notes or levels, a REST with a slide";
+            if (s->time == ST_TIE && (!i || t->step[i - 1u].time == ST_REST))
+                return "a TIE after no note";
+            st->ties += s->time == ST_TIE;
+        } else {
+            if (s->n != 1u || (s->lvl >> 2) || s->vel != 100u)
+                return "not one note a step (mono)";
+            if (!((mask >> (uint32_t)((s->note[0] - t->p[P_ROOT] + 120) % 12)) & 1u))
+                return "a note out of the scale";
+            if (s->note[0] < base || s->note[0] > base + 23)
+                return "a note out of the two octaves from the root by the register";
+            if ((s->lvl & 3u) == LV_HARD && (s->flags & SF_SLIDE))
+                return "an accent on a slide (TB-3PO: one or the other)";
+            if ((s->lvl & 3u) == LV_GHOST)
+                return "a ghost note";
+            notes++;
+            hard += (s->lvl & 3u) == LV_HARD;
+            st->high += s->note[0] >= base + 12;
+            if (i % 4u == 0u) {
+                st->beats++;
+                st->beat_root += (s->note[0] - base) % 12 == 0;
+            } else {
+                st->offs++;
+                st->off_root += (s->note[0] - base) % 12 == 0;
+            }
+        }
+        if (s->flags & ~SF_SLIDE)
+            return "a flag other than the slide";
+        if (s->flags & SF_SLIDE) {
+            if (i + 1u >= len || t->step[i + 1u].time != ST_NOTE)
+                return "a slide not into a note";
+            st->slides++;
+        }
+    }
+    if (!notes)
+        return "no note";
+    st->notes += notes;
+    st->hard += hard;
+    st->want_n += len * dice.acid[0] / 100.0;
+    st->want_h += notes * dice.acid[1] * (100u - dice.acid[2]) / 10000.0;
+    return 0;
+}
+
+static void acid_case(uint32_t ti, uint32_t root, uint32_t scale, uint32_t voice, uint32_t chord, uint32_t len, int bass,
+                      const char *name)
+{
+    static snap_t init;
+    static uint32_t h[ROLLS];
+    track_t *t = &trk[ti];
+    astat_t st;
+    const char *why = 0;
+    uint32_t r;
+    char what[160];
+    t->p[P_ROOT] = (int16_t)root;
+    t->p[P_SCALE] = (int16_t)scale;
+    t->p[P_VOICE] = (int16_t)voice;
+    t->p[P_CHORD] = (int16_t)chord;
+    t->p[P_TRANS] = 0;
+    setup(t, len);
+    for (r = 0; r < len; r++)
+        step_clear(&t->step[r]);
+    snap(t, &init);
+    memset(&st, 0, sizeof st);
+    dice.n = 0;
+    for (r = 0; r < ROLLS && !why; r++) {
+        dice_roll(t, DS_ACID, bass);
+        why = acid_bad(t, &init, &st);
+        h[r] = pattern_sum(t);
+    }
+    st.distinct = distinct(h, r);
+    snprintf(what, sizeof what, "ACID %s: %u rolls: mono, scale, 2 octaves by %u, slides into notes, ties", name, ROLLS, dice.lo);
+    ck(!why, why ? why : what);
+    snprintf(what, sizeof what, "... notes %u (rolled density: %.0f), accents %u (rolled: %.0f), slides %u, ties %u, high %u",
+             st.notes, st.want_n, st.hard, st.want_h, st.slides, st.ties, st.high);
+    ck(st.notes > 0.93 * st.want_n && st.notes < 1.07 * st.want_n && st.hard > 0.9 * st.want_h && st.hard < 1.1 * st.want_h &&
+       st.slides > st.notes / 20u && st.slides < st.notes / 3u && st.ties > st.notes / 20u && st.high > st.notes / 5u, what);
+    snprintf(what, sizeof what, "... the root on the beat %u of %u, off it %u of %u; rolls differ (%u of %u)", st.beat_root, st.beats,
+             st.off_root, st.offs, st.distinct, ROLLS);
+    ck(st.beat_root * 10u > st.beats * 4u && st.off_root * 10u < st.offs * 3u && st.distinct > ROLLS * 9u / 10u, what);
+}
+
 static void back_case(track_t *t, uint32_t len, const char *name)
 {
     static snap_t orig, r[20];
@@ -268,7 +376,7 @@ static void back_case(track_t *t, uint32_t len, const char *name)
     snap(t, &orig);
     dice.n = 0;
     for (i = 0; i < 20u; i++) {
-        dice_roll(t, DS_HOUSE + i % 6u, 0);
+        dice_roll(t, DS_HOUSE + i % 7u, 0);       /* (HOUSE .. ACID) */
         snap(t, &r[i]);
     }
     ok = dice_depth(t) == DICE_DEPTH;
@@ -308,6 +416,26 @@ int main(int argc, char **argv)
     synth_case(2, 6, 9, V_POLY, 5, 16, 0, 0, 0, "POWER chords, F# lydian, LEN 16");
     synth_case(1, 5, 2, V_LEGATO, 0, 16, 0, 0, -24, "a TRANSPOSE -24 sound (808), F minor");
     ck(dice.bass && dice.hi <= 55u, "... a bass, where its keys play");
+
+    acid_case(0, 9, 2, V_LEGATO, 0, 16, 1, "bass, A minor, LEN 16");
+    acid_case(1, 2, 0, V_POLY, 0, 32, 0, "melody, CHR (minor), POLY, LEN 32");
+    acid_case(2, 7, 6, V_POLY, 2, 64, 1, "bass, G minor pentatonic, 7TH chords on, LEN 64");
+    acid_case(0, 4, 8, V_MONO, 0, 12, 1, "bass, E phrygian, LEN 12");
+    {   /* mutating an ACID line: no ratchet on a slide (it would not slide) */
+        track_t *m = &trk[0];
+        uint32_t p, j;
+        for (i = 0, ok = 1, s = 0; i < 200u; i++) {
+            dice_roll(m, DS_ACID, 1);
+            for (p = 0; p < 10u; p++) {
+                mutate(m);
+                for (j = 0; j < trk_len(m); j++) {
+                    ok &= !((m->step[j].flags & SF_SLIDE) && m->step[j].rat);
+                    s += m->step[j].rat != 0u;
+                }
+            }
+        }
+        ck(ok && s > 100u, "ACID mutated (2000 passes): ratchets come, never on a slide");
+    }
 
     back_case(TDRUM, 32, "drums");
     trk[0].p[P_CHORD] = 2;
@@ -393,6 +521,15 @@ int main(int argc, char **argv)
         encs[panel.enc[EN_ALGO]] = -3;
         frame();
         ck(dice_pick == DS_KIT && !strcmp(ui.msg, "STYLE KIT: TRAP"), "ALGORITHM back: KIT (the 808: TRAP)");
+        encs[panel.enc[EN_ALGO]] = DS_ACID;
+        frame();
+        ck(dice_pick == DS_ACID && !strcmp(ui.msg, "STYLE ACID"), "ALGORITHM right: ACID");
+        encs[panel.enc[EN_PRESET]] = 1;
+        frame();
+        ck(!strcmp(ui.msg, "DICE ACID 2") && dstep_has(&TDRUM->dstep[2], LANE_OPEN) && dstep_has(&TDRUM->dstep[4], LANE_KICK),
+           "PRESETS on the drums: an acid house groove, DICE ACID 2");
+        encs[panel.enc[EN_ALGO]] = -DS_ACID;
+        frame();
         release(B_EDIT);
         ck(ui.layer == LY_PLAY && cur_page()->scope == SC_TRK, "EDIT let go: no EDIT page (the hold was used)");
         song.sel = 0;                                       /* 808 BOOM: a bass */
@@ -425,6 +562,27 @@ int main(int argc, char **argv)
                 ok &= trk[1].step[i].note[0] >= 50u && trk[1].step[i].note[0] <= 80u;
             }
         ck(s && ok && !dice.bass, "track 2 (RHODES): a melody around C4");
+        song.sel = 0;                                       /* 808 BOOM, ACID */
+        go_home();
+        frame();
+        steps_clear(&trk[0]);
+        snap(&trk[0], &orig);
+        press(B_EDIT);
+        frames(10);
+        encs[panel.enc[EN_ALGO]] = DS_ACID;
+        frame();
+        encs[panel.enc[EN_PRESET]] = 1;
+        frame();
+        for (i = 0, ok = 1, s = 0; i < trk_len(&trk[0]); i++)
+            if (trk[0].step[i].time == ST_NOTE) {
+                s++;
+                ok &= trk[0].step[i].n == 1u && trk[0].step[i].note[0] <= 60u && trk[0].step[i].note[0] >= 28u;
+            }
+        ck(s && ok && dice.bass && !strcmp(ui.msg, "DICE ACID 1"), "track 1, EDIT + ALGORITHM ACID, PRESETS: a 303 line, DICE ACID 1");
+        encs[panel.enc[EN_PRESET]] = -1;
+        frame();
+        release(B_EDIT);
+        ck(same(&trk[0], &orig) && !strcmp(ui.msg, "DICE 0"), "... PRESETS left: the part before, exactly");
     }
 
     printf(bad ? "dice: %d FAILED\n" : "dice: all ok\n", bad);
