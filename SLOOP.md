@@ -17,6 +17,7 @@ SLOOP is free and open source (GPL-3.0), based on [Felucca](https://github.com/h
 - **Parameter locks.** A step can have its own sound: lock SEQ open (SEQ + HOME), tap ENV, LFO, FX or EDIT, hold steps and turn a knob (8 locks a step, 56 a project; OCT− with steps held clears them). See [P-LOCK](#p-lock--a-steps-own-sound).
 - **MUTATE.** EDIT + **KNOB 4**: each click right varies the pattern a little, left takes it back.
 - **DICE.** EDIT + **PRESETS**: each click right rolls a new pattern for the selected track — a groove on the drum track, a bass line, a melody or chords in the song's key on a synth track — in a style (EDIT + **ALGORITHM**: HOUSE, TRAP, BOOM BAP, BREAK, AMAPIANO, DNB, RANDOM, or KIT: the style of the drum kit); left goes back through the rolls to your own pattern. See [EDIT — erase](#edit--erase).
+- **GRIDS.** The drum screen's **map** page: four knobs — **X**, **Y**, **DENSITY**, **CHAOS** — move through a map of 25 drum patterns, and the kick, snare and hat follow while you turn, morphing from one groove into the next; the result is written into the pattern (saved, editable). After Grids by Émilie Gillet. See [GRIDS — the drum map](#grids--the-drum-map).
 - **Inverted screen.** HOME → COLOR: **INV BW** and **INV GRN** turn the panel into its negative — a white screen with dark text, much brighter on a dim panel (the track colours invert too).
 
 ### New in 2.3
@@ -126,9 +127,9 @@ The tiles are four rows of four, keys 1–4, 5–8, 9–12, 13–16. To find the
 | Hold | Keys | KNOB 1 · 2 · 3 · 4 | Tap |
 | --- | --- | --- | --- |
 | **FX** — *punch* | white: a punch-in effect while the key is held · black: **FILL** while held | FILTER · DUST · DUCK · — | FX pages |
-| **EDIT** — *erase* | erase that sound / note from the pattern | SHIFT · LENGTH ×2 / ½ · TRANSPOSE · MUTATE (PRESETS: DICE, ALGORITHM: its style) | EDIT pages (drums: grid / kit) |
+| **EDIT** — *erase* | erase that sound / note from the pattern | SHIFT · LENGTH ×2 / ½ · TRANSPOSE · MUTATE (PRESETS: DICE, ALGORITHM: its style) | EDIT pages (drums: grid / kit / map) |
 | **ARP** — *roll* | note repeat on the grid | RATE · — · — · — | ARP pages |
-| **SEQ** — *steps* | steps 1–16 of the page | SOUND / NOTE · DIV · SWING · LENGTH (a step held: SOUND / NOTE · LEVEL · RATCHET · CONDITION) | SEQ pages (drums: grid / kit) |
+| **SEQ** — *steps* | steps 1–16 of the page | SOUND / NOTE · DIV · SWING · LENGTH (a step held: SOUND / NOTE · LEVEL · RATCHET · CONDITION) | SEQ pages (drums: grid / kit / map) |
 | **SCL** — *key* | the key of the song | CHORD · SCALE · KEYS · TRANSPOSE | SCL pages |
 | **GLO** — *mix* | 1–4 mute · 5–8 solo · 16 tap tempo | level of tracks 1 · 2 · 3 · 4 | GLO pages |
 | **SAVE** — *song* | 1–4 play section A–D (next bar) · 5–8 save the loop into A–D · 13 loop / song · 14 SONG REC · 16 the chain | — | TRACKS: the SONG screen · else the SAVE pages |
@@ -163,6 +164,18 @@ Track 4 plays **16 sounds, one per white key** from the lowest F to the highest 
 | B3 | clap | F4 | rim | C5 | crash | G5 | cowbell |
 
 **Levels:** every hit has one of four levels — **GHOST**, **SOFT**, **NORM** (as played), **HARD**. Hold **OCT−** while you hit for ghost notes, **OCT+** for hard hits; they are recorded so. **Ratchets:** a hit can repeat x1–x4 inside its step (ARP rolls record them; SEQ + a step + KNOB 3 sets them). The closed and pedal hats choke the open one.
+
+### GRIDS — the drum map
+
+On the drum screen (EDIT or SEQ tapped on TRACKS with the drum track), tap EDIT / SEQ until **map**: a map of 25 drum patterns on a 5 × 5 grid, and the dot where you are. Turn its knobs — playing or stopped — and the **kick**, **snare** and **closed hat** follow at once:
+
+- **KNOB 1 X · KNOB 2 Y** — the place on the map. Between its points the patterns blend: turned slowly, one groove morphs into the next.
+- **KNOB 3 DENSITY** — how many hits: 0 none; turned up, the hits there were stay and softer ones come in; at the top, every hit the map has there.
+- **KNOB 4 CHAOS** — pushes each sound's hits up by chance, bar by bar: more hits, and bars that differ. Turned back down in the same touch, it comes back; a new touch draws again.
+
+The result is written into the pattern like any other: saved with the project, editable on the grid, recorded over. A bar is 16 steps, again up to LENGTH (DIV 1/32: 32 steps, the map's own resolution; at 16 steps a 32nd after a hit becomes its ratchet ×2). The levels come from the map: its accents **HARD**, then NORM, SOFT and, at a high density, GHOST. The other 13 sounds stay, and so do the steps past LENGTH; a step whose kick, snare or hat changes loses its condition and its locks (as a dice roll). A touch — one knob, turns less than a second apart — is one undo (EDIT + OCT−). The knobs are not saved (the pattern holds what they made); they start at X, Y, DENSITY 50 %, CHAOS 0.
+
+The map and its rules (the blend, the density thresholds, the chance, the accents) are a port of Grids by Émilie Gillet / Mutable Instruments (GPL-3.0).
 
 ## Recording
 
@@ -292,7 +305,7 @@ Changing a sound (PRESETS, a user preset) never changes the key, the chord mode,
 
 ## Undo, clear, save, autosave
 
-- **Undo / redo:** hold EDIT, press OCT− / OCT+. One level: the last recording pass, erase, clear, step or pattern edit (with the step's parameter locks); redo takes it back again.
+- **Undo / redo:** hold EDIT, press OCT− / OCT+. One level: the last recording pass, erase, clear, step or pattern edit (with the step's parameter locks), a touch of a GRIDS knob; redo takes it back again.
 - **Clear a track:** hold REC. After 0.7 s the press is cancelled and a ring fills; keep holding ~1.3 s more and the selected track is cleared (*TRACK 2 CLEARED*). Let go before: nothing. Undo brings it back.
 - **Save:** SAVE + keys 5–8 save the loop into section / project A–D (= SLOT 1–4); SAVE → PROJECT has SLOT, LOAD, SAVE too.
 - **Autosave:** when the transport is stopped and you have not touched anything for 2.5 s (at most every 20 s), the working project is kept in flash; at power-on SLOOP comes back exactly as you left it.
@@ -326,7 +339,7 @@ Hold **FX**, then hold a white key — the 16 white keys from the lowest F to th
 
 - **TRACKS** (HOME) — the performance view: tempo, swing, transport, bar.beat; each track with its sound, its steps, the playhead, mute / solo / rec badges and its level. Dials: *swing · level · steps · pan* (KNOB 2 on a muted track unmutes it).
 - **Layers** — while a layer button is held: 16 tiles (the white keys) and the knobs' dials, in the layer's colour.
-- **DRUMS** (EDIT or SEQ tapped on TRACKS with the drum track) — **grid**: the 16 sounds × 16 steps, levels as shades, ratchets as notches; dials *sound · step · hit · level*. **kit**: 16 pads that flash on every hit; dials *kit · level · reverb · pan*. EDIT / SEQ tapped switches grid ↔ kit.
+- **DRUMS** (EDIT or SEQ tapped on TRACKS with the drum track) — **grid**: the 16 sounds × 16 steps, levels as shades, ratchets as notches; dials *sound · step · hit · level*. **kit**: 16 pads that flash on every hit; dials *kit · level · reverb · pan*. **map**: the drum map ([GRIDS](#grids--the-drum-map)) and the dot X / Y on it, the kick, snare and hat of the bar; dials *x · y · density · chaos*. EDIT / SEQ tapped: grid → kit → map.
 - **REC READY / FREE TAKE** — while REC is armed: the tracks, then **mode**, **length** and **start** on KNOB 1–3 (4-3-2-1 during a count-in); during a free take: the seconds and the loop it makes.
 - **Holds** — the ring of REC (clear) while held.
 - **SONG** — the section chain.
@@ -459,7 +472,7 @@ The glow is a short pulse on every scan of the panel (about 900 times a second):
 | Tracks | 3 synth parts (8 voices shared) + drums (16 sounds, 6 voices) |
 | Sounds | 68 presets on 9 engines (browsed by kind, level-matched), 8 sampled sets (CC0), 3 slots for your own samples |
 | Sequencer | 64 steps per track, own length and division each; chords with a level and ratchet per note; drums with a level and ratchet per sound; a condition per step (chance, a:b, FILL, first pass); parameter locks (a step's own sound: 8 a step, 56 a project); ties, slide; MPC swing 50–75 %; one sample-accurate clock for steps, arp, rolls, slicer and song (no drift) |
-| Performance | layers (hold a button: keys and knobs change job): punch-in FX, erase, mutate, dice (a new pattern in 7 styles), note repeat, step entry, key / chords, mute / solo / tap tempo |
+| Performance | layers (hold a button: keys and knobs change job): punch-in FX, erase, mutate, dice (a new pattern in 7 styles), a drum map (GRIDS: X, Y, density, chaos), note repeat, step entry, key / chords, mute / solo / tap tempo |
 | Drum kits | 37 (5 sampled, 32 synthesised, 16 sounds each) |
 | Effects | 16 punch-in effects; master DUST, DUCK, DJ filter; per track drive, slicer, sends to a stereo chorus, a tempo delay and a stereo reverb; master limiter |
 | Recording | live, quantised as heard (latency-compensated), overdub; records at once while playing; free take sets loop length and tempo, or the tempo set, from the first note or a one-bar count-in |
@@ -473,5 +486,5 @@ The glow is a short pulse on every scan of the panel (about 900 times a second):
 - **USB rescue:** hold **OCT−** alone while switching on (*SLOOP USB RESCUE*), then install again.
 - **Interrupted install:** the FM-1 stays in update mode; press Install again and it finishes. A damaged package is refused, and the FM-1 keeps waiting for a good one.
 - **Back to the official firmware:** on the installer page, open **Return to the official firmware (V15)**: save a backup with the editor first, download FM-1 V15 from m-vave.com, select its FM-1.fwsc (only that exact file is accepted) and install it. M-VAVE's own updater, M-UPGRADE, works too (close every other app that uses MIDI first). To come back to SLOOP, install it again and restore your backup.
-- **Credits:** SLOOP is based on Felucca by Leo Kuroshita (@kurogedelic), Hügelton Instruments — engines, sequencer, editor and installer. Played-note key lights: @renebohne (pull request #11). TRS MIDI input buffer fix: Felucca [Salt] by ChanceTheMaker, found by keremimo. Knob reading, MIDI input, overload shedding, LED glow, key debounce, MIDI clock, the USB audio input and the return to the official firmware after Felucca 1.0 / 1.0.1. Font: Terminus (SIL OFL 1.1). Samples: Versilian Studios VSCO-2 CE and VCSL, Sonic Pi (all CC0). PHASE: CrispyZebra (GPL). VOICE after klattsch (MIT). Interface ideas after teenage engineering's pocket operators and EP-133, Elektron's step entry and Akai's MPC (swing, note repeat, erase) — SLOOP is not affiliated with any of them.
+- **Credits:** SLOOP is based on Felucca by Leo Kuroshita (@kurogedelic), Hügelton Instruments — engines, sequencer, editor and installer. Played-note key lights: @renebohne (pull request #11). TRS MIDI input buffer fix: Felucca [Salt] by ChanceTheMaker, found by keremimo. Knob reading, MIDI input, overload shedding, LED glow, key debounce, MIDI clock, the USB audio input and the return to the official firmware after Felucca 1.0 / 1.0.1. Font: Terminus (SIL OFL 1.1). Samples: Versilian Studios VSCO-2 CE and VCSL, Sonic Pi (all CC0). PHASE: CrispyZebra (GPL). VOICE after klattsch (MIT). GRIDS: the drum map of Grids by Émilie Gillet / Mutable Instruments (GPL-3.0). Interface ideas after teenage engineering's pocket operators and EP-133, Elektron's step entry and Akai's MPC (swing, note repeat, erase) — SLOOP is not affiliated with any of them.
 - **Licence:** GPL-3.0, no warranty. M-VAVE and FM-1 are trademarks of their owners; SLOOP is not affiliated with them. Drum kit names describe styles; they do not refer to any product.

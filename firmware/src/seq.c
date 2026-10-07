@@ -813,6 +813,7 @@ static int mutate_back(track_t *t)                /* the last pass undone: 1, 0 
 }
 
 #include "dice.c"                        /* DICE: a new pattern in a style (EDIT + PRESETS) */
+#include "grids.c"                       /* GRIDS: the drum map of Grids (the drum screen's MAP page) */
 
 /* ------------------------------------------------------- recording --- */
 /* key to ear, in samples: the key's debounce (~3 ms) and the audio out buffer (HALF_FRAMES to
