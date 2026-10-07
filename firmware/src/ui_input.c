@@ -769,6 +769,7 @@ static void ui_input(void)
     uint32_t home = btn_hold(&ui.home_t0, B_HOME, now, 1);
     int32_t s;
     int layered;
+    turing_arm();                                       /* TURN turned up / down (any way: knob, editor, a load) */
     if (pressed || notes)
         ui_input_ms = fm1_ms;
     if (home == BT_HOLD) {                              /* HOME held: open the menu, or leave it */

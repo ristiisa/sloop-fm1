@@ -56,6 +56,7 @@ enum {                          /* per-track parameters */
     P_AACC, P_AHITS, P_ASTEPS, P_ARAT,         /* arp rhythm: accents, euclidean HITS of STEPS, ratchet (seq.c) */
     P_AROT, P_ASYNC, P_ARHYM, P_ADEJA,         /* arp: rotate, restart, rhythm masks, deja vu (seq.c) */
     P_ASHIFT, P_ACYC,                          /* arp: degrees a cycle, cycles before it starts over (seq.c) */
+    P_TURN,                                    /* the pattern rewrites itself as it plays, 0..100 % (seq.c turing) */
     P_E0, P_E1, P_E2, P_E3, P_E4, P_E5, P_E6, P_E7,
     P_COUNT
 };
@@ -227,6 +228,9 @@ typedef struct track {
     uint8_t slide_glide;         /* next legato note glides (slide) */
     uint32_t seq_off;            /* units to the note-off of the step's notes */
     uint8_t seq_active;          /* any step programmed */
+    uint8_t tu_arm;              /* TURN: up (the UI took the undo and the register: seq.c turing_arm) */
+    uint8_t tu_lo, tu_hi;        /* .. the register its notes are drawn in */
+    uint16_t tu_reg;             /* .. the shift register a random bit goes into on each rewrite */
     uint8_t rat_done[4];         /* ratchet hits played in this step: per note (synth) */
     uint32_t rat_lanes;          /* .. per lane (drums): 2 bits each */
     uint32_t rskip_abs;          /* live recording put notes into the step about to play: */

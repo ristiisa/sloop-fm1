@@ -812,7 +812,139 @@ static int mutate_back(track_t *t)                /* the last pass undone: 1, 0 
     return 1;
 }
 
-#include "dice.c"                        /* DICE: a new pattern in a style (EDIT + PRESETS) */
+/* ----------------------------------------------------------- turing --- */
+/* TURN (SEQ > PATTERN 2, 0..100 %): while the transport plays, each step is rewritten with that chance
+ * as it comes round, before it plays, and stays so: TURN back to 0 keeps what you hear (after the
+ * Music Thing Turing Machine and Mutable Instruments Marbles' deja vu). Synth parts: a step with notes
+ * gets another note of the scale in the register (the span of the pattern's notes when TURN went up, an
+ * octave at least): a random bit goes into the track's 16-bit shift register, its low byte is the place
+ * in the register (the Turing Machine's 8-bit DAC). A chord keeps its size: CHORD on, the chord of the
+ * new note, else its shape moved there. Empty steps, ties and rests stay; levels, ratchets, conditions
+ * and locks stay with the step. The drum track: a sound the pattern used (not a kick on a beat) is drawn
+ * again on the step, a hit with the share of the steps it had: it comes, goes, or (a hit again) moves to
+ * the next sound of its kind the pattern used. Not while recording the track; O(1) a step (audio ISR).
+ * Undo: TURN going up from 0 keeps the pattern before it as the undo step (EDIT + OCT-); down and up
+ * again on the pattern it left keeps that one; after another edit (or a recording, a load) up takes
+ * the pattern then. The rewrites are no undo steps. */
+static uint32_t tu_sess, tu_sum;               /* the undo session of the last TURN snapshot, the pattern left then */
+static uint8_t tu_cnt[DRUM_LANES];             /* the drum track: the hits of each sound in it then */
+static uint32_t tu_lanes;                      /* .. the sounds it used */
+static const uint8_t TU_KIN[DRUM_LANES] = {1, 0, 3, 7, 5, 6, 13, 8, 2, 10, 14, 12, 11, 4, 15, 9};   /* next of its kind */
+
+/* the UI, each frame: TURN up on a track (not recording it): the undo step (once) and the register from
+ * it; down (or recording): off */
+static void turing_arm(void)
+{
+    uint32_t i, k, j, len;
+    for (i = 0; i < NTRK; i++) {
+        track_t *t = &trk[i];
+        int32_t a = 127, b = 0;
+        if (!t->p[P_TURN] || ((song.rec >> i) & 1u)) {
+            if (t->tu_arm && undo.trk == i)
+                tu_sum = pattern_sum(t);              /* (as it was left: up again on it keeps the undo step) */
+            t->tu_arm = 0;
+            continue;
+        }
+        if (t->tu_arm)
+            continue;
+        fm1_irq_off();
+        if (!undo.valid || undo.undone || undo.trk != i || undo.sess != tu_sess || pattern_sum(t) != tu_sum)
+            undo_mark(t, tu_sess = (undo_sess += 4u) | 3u);
+        len = (uint32_t)clamp(undo.len, 1, NSTEP);
+        if (is_drum(t)) {
+            tu_lanes = 0;
+            memset(tu_cnt, 0, sizeof tu_cnt);
+            for (k = 0; k < len; k++) {
+                uint32_t m = dstep_mask((const dstep_t *)&undo.st[k]);
+                tu_lanes |= m;
+                for (j = 0; m; j++, m >>= 1)
+                    tu_cnt[j] = (uint8_t)(tu_cnt[j] + (m & 1u));
+            }
+        } else {
+            for (k = 0; k < len; k++)
+                for (j = 0; undo.st[k].time == ST_NOTE && j < undo.st[k].n && j < 4u; j++) {
+                    a = undo.st[k].note[j] < a ? undo.st[k].note[j] : a;
+                    b = undo.st[k].note[j] > b ? undo.st[k].note[j] : b;
+                }
+            if (b - a < 12) {                         /* an octave at least, around them */
+                a -= (12 - (b - a)) / 2;
+                b = a + 12;
+            }
+            a = clamp(a, 0, 115);
+            t->tu_lo = (uint8_t)a;
+            t->tu_hi = (uint8_t)clamp(b, a + 12, 127);
+        }
+        t->tu_reg = (uint16_t)rng();
+        t->tu_arm = 1;
+        fm1_irq_on();
+    }
+}
+
+/* step idx of t comes round (audio ISR, TURN up): rewritten with its chance (out of line: the ISR stays as it was) */
+static __attribute__((noinline)) void turing_step(track_t *t, uint32_t idx)
+{
+    uint32_t k, n;
+    if (!t->tu_arm || ((song.rec >> trk_index(t)) & 1u) || rng() % 100u >= (uint32_t)t->p[P_TURN])
+        return;
+    if (is_drum(t)) {
+        dstep_t *s = &t->dstep[idx];
+        uint32_t m = tu_lanes & ~(idx % 4u ? 0u : MUT_KICKS), l = 0, j;
+        for (n = 0, k = m; k; k &= k - 1u)
+            n++;
+        if (!n)
+            return;
+        n = rng() % n;
+        while (!((m >> l) & 1u) || n--)            /* the n-th of them */
+            l++;
+        if (rng() % trk_len(t) >= tu_cnt[l]) {
+            dstep_clr(s, l);                        /* a rest */
+        } else if (!dstep_has(s, l)) {
+            dstep_set(s, l, idx % 4u ? LV_SOFT : LV_NORM, 0);
+        } else {                                    /* a hit again: to the next of its kind */
+            for (j = TU_KIN[l]; j != l && (!((m >> j) & 1u) || dstep_has(s, j)); j = TU_KIN[j])
+                ;
+            if (j != l) {
+                dstep_set(s, j, dstep_lvl(s, l), dstep_rat(s, l));
+                dstep_clr(s, l);
+            }
+        }
+        return;
+    }
+    {
+        step_t *s = &t->step[idx];
+        int32_t lo = t->tu_lo, hi = t->tu_hi, r, x;
+        uint8_t c[4];
+        if (s->time != ST_NOTE || !s->n)
+            return;
+        t->tu_reg = (uint16_t)(t->tu_reg << 1 | (rng() & 1u));
+        r = scale_step(t, lo + (int32_t)((t->tu_reg & 255u) * (uint32_t)(hi - lo + 1) >> 8) + 1, -1);   /* into the scale */
+        if (r < lo)
+            r = scale_step(t, r, 1);
+        if (r == s->note[0] && (r = scale_step(t, r, 1)) > hi)   /* never the note it had */
+            r = scale_step(t, scale_step(t, r, -1), -1);
+        n = s->n < 4u ? s->n : 4u;
+        if (n > 1u && t->p[P_CHORD] && chord_notes(t, (uint32_t)r, c) >= n) {
+            for (k = 0; k < n; k++)
+                s->note[k] = c[k];
+            return;
+        }
+        c[0] = (uint8_t)r;
+        for (k = 1; k < n; k++) {                   /* the chord's shape, on the new note, in the scale */
+            uint32_t j;
+            x = scale_step(t, clamp(s->note[k] + r - s->note[0], 0, 126) + 1, -1);
+            for (j = 0; j < k; j++)
+                if (c[j] == x) {
+                    x = scale_step(t, x, 1);
+                    j = (uint32_t)-1;
+                }
+            c[k] = (uint8_t)clamp(x, 0, 127);
+        }
+        for (k = 0; k < n; k++)
+            s->note[k] = c[k];
+    }
+}
+
+#include "dice.c"                       /* DICE: a new pattern in a style (EDIT + PRESETS) */
 
 /* ------------------------------------------------------- recording --- */
 /* key to ear, in samples: the key's debounce (~3 ms) and the audio out buffer (HALF_FRAMES to
@@ -2325,6 +2457,8 @@ static void seq_tick(track_t *t, uint32_t adv)
         }
         if (erasing(t))
             erase_step(t, idx);                      /* EDIT + key held: gone as it passes */
+        if (t->p[P_TURN])
+            turing_step(t, idx);                     /* TURN: rewritten first, with its chance */
         t->seq_fail = t->cond[idx] && step_sounds(t, idx) && !cond_ok(t, t->cond[idx]);
         if (is_drum(t)) {
             uint32_t skip = t->rskip_abs == abs ? t->rskip_lanes : 0u;

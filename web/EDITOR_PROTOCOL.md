@@ -161,8 +161,8 @@ first ones = P_LEVEL.. in order, missing ones = defaults). P_COUNT was 53 (P_E0 
 parameters (SLCR, PAT, RATE, DEPTH: ids 45..48) went in just before P_E0: P_COUNT 57, P_E0 49; SLOOP 2.0
 added CHORD (id 49): P_COUNT 58, P_E0 50 (and G_COUNT 32: DUST, DUCK, FILT, ROLL, NEW at 27..31); SLOOP
 2.4 the arp rhythm (ACC, HITS, STEPS, RAT: 50..53): P_COUNT 62, P_E0 54; SLOOP 2.5 ROT, SYNC, RHYM, DEJA
-(54..57) and SHIFT, CYC (58, 59): P_COUNT 68, P_E0 60. An editor takes them from `INFO`; older records
-load with the SLICER off, CHORD off and the arp parameters added since at their defaults.
+(54..57), SHIFT, CYC (58, 59) and TURN (60): P_COUNT 69, P_E0 61. An editor takes them from `INFO`; older
+records load with the SLICER off, CHORD off, TURN 0 and the arp parameters added since at their defaults.
 
 ## v2: live sync
 
@@ -193,9 +193,9 @@ load with the SLICER off, CHORD off and the arp parameters added since at their 
   changes to other tracks (live recording from MIDI into another track, `TRACK_*` writes) push nothing.
 - Level and mute are also `P_LEVEL` / `P_MUTE` of the selected track (`SET`); `TRACK_MIX` reaches the
   others. Presets and user presets change a part's sound but keep its mix (`P_LEVEL`, `P_PAN`,
-  `P_MUTE`), its pattern parameters (`LEN DIV SWG GATE`) and its key (`ROOT SCL QNT`, `CHORD`).
-- Projects (`PROJECT`) save and load all four tracks and the selection (SLOOP 2.5: project format 7,
-  "FUN7", with the drum lanes, levels and ratchets and the parameter locks of the steps; formats 6..1 from
+  `P_MUTE`), its pattern parameters (`LEN DIV SWG GATE TURN`) and its key (`ROOT SCL QNT`, `CHORD`).
+- Projects (`PROJECT`) save and load all four tracks and the selection (SLOOP 2.5: project format 8,
+  "FUN8", with the drum lanes, levels and ratchets and the parameter locks of the steps; formats 7..1 from
   older firmware are converted when loaded, a format 1 project into track 1).
 - Parameter locks (SLOOP 2.5, set on the device: P-LOCK) never show in `GET`, `DUMP` or `TRACK_*`: those
   are always the track's own values, also while a locked step plays. A step cleared by `STEP_SET`,
