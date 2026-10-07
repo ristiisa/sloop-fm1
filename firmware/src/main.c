@@ -250,6 +250,7 @@ static void fm1_main(void)
 #if FELUCCA_CDC
         cdc_task();
 #endif
+        lcd_invert(pal_inv);                 /* (a palette changed: the panel follows before the frame) */
         felucca_dbg.ui_frames++;
         felucca_dbg.page = ui.page;
         felucca_dbg.home = ui.home;
