@@ -4,7 +4,8 @@
  * let go without touching anything) the button opens its pages as before.
  *   FX    punch-in effects (punch.c)       knobs: FILTER  DUST  DUCK
  *         (black keys: FILL, seq.c)
- *   EDIT  erase that sound / note (seq.c)  knobs: SHIFT  LENGTH x2 / half  TRANSPOSE  MUTATE;  OCT- undo  OCT+ redo
+ *   EDIT  erase that sound / note (seq.c)  knobs: SHIFT  LENGTH x2 / half  TRANSPOSE  MUTATE;  OCT- undo  OCT+ redo;
+ *                                          PRESETS: DICE (a new pattern, back: the rolls before), ALGORITHM: its style
  *   ARP   note repeat (seq.c roll)         knobs: RATE
  *   SEQ   steps 1..16 of the page          knobs: SOUND / NOTE  DIV  SWING  LENGTH;  a step key held:
  *         (black keys 1..4: pages)                SOUND / NOTE  LEVEL  RATCHET  CONDITION;  step keys + OCT-: their locks go
@@ -132,6 +133,40 @@ static void pattern_mutate(track_t *t, int32_t d)      /* a pass of small change
         fmt_int(b, (int32_t)n);
         ui_say("MUTATE ", b);
     }
+}
+/* DICE (seq.c dice.c): PRESETS a new pattern a detent in the style ALGORITHM picks (each one undo), back:
+ * the rolls before */
+static uint8_t dice_pick;                               /* the style picked (not saved), DS_KIT: the drum kit's */
+static uint32_t dice_style_now(void) { return dice_pick == DS_KIT ? dice_kit_style() : dice_pick; }
+static void pattern_dice(track_t *t, int32_t d)
+{
+    uint32_t n = 1, fwd = d > 0, total, k = preset_pos(&total);
+    int bass = !is_drum(t) && k < NBANK && BANK[k].kind == BK_BASS;   /* (the register of a bass) */
+    char b[24];
+    for (; d && n; d += fwd ? -1 : 1) {
+        if (fwd || dice_depth(t))
+            undo_mark(t, (undo_sess += 4u) | 3u);
+        fm1_irq_off();
+        n = fwd ? dice_roll(t, dice_style_now(), bass) : (uint32_t)dice_back(t);
+        fm1_irq_on();
+    }
+    n = dice_depth(t);
+    sync_reload = 1;
+    str_cpy(b, n ? N_DICE[dice.style[n - 1u]] : "", sizeof b);   /* DICE TRAP 3 */
+    str_cpy(b + str_len(b), n ? " " : "", 2);
+    fmt_int(b + str_len(b), (int32_t)n);
+    ui_say("DICE ", b);
+}
+static void dice_choose(int32_t s)
+{
+    char b[24];
+    dice_pick = (uint8_t)clamp(dice_pick + s, 0, DS_COUNT - 1);
+    str_cpy(b, N_DICE[dice_pick], sizeof b);
+    if (dice_pick == DS_KIT) {                          /* STYLE KIT: TRAP */
+        str_cpy(b + str_len(b), ": ", 3);
+        str_cpy(b + str_len(b), N_DICE[dice_kit_style()], sizeof b - str_len(b));
+    }
+    ui_say("STYLE ", b);
 }
 
 /* ------------------------------------------------------------- SEQ --- */
@@ -503,6 +538,16 @@ static void layer_knobs(uint32_t layer)
         }
         default:
             break;
+        }
+    }
+    if (layer == LY_ERASE) {                            /* PRESETS: DICE, ALGORITHM: its style */
+        if ((s = panel_enc(EN_PRESET)) != 0) {
+            ui.layer_used = 1;
+            pattern_dice(t, s);
+        }
+        if ((s = panel_enc(EN_ALGO)) != 0) {
+            ui.layer_used = 1;
+            dice_choose(s);
         }
     }
 }

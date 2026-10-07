@@ -804,7 +804,7 @@ static void ui_input(void)
             song.g[G_BPM] = (int16_t)clamp(song.g[G_BPM] + accel(EN_SELECT, s, 200), GP[G_BPM].min, GP[G_BPM].max);
             ui.bpm_t = 40;
         }
-        panel_enc(EN_ALGO);                             /* (track and sound wait: no jump afterwards) */
+        panel_enc(EN_ALGO);                             /* (track and sound wait: no jump afterwards; EDIT: DICE) */
         panel_enc(EN_PRESET);
         if (ui.hold_kind)
             for (k = 0; k < 4u; k++)

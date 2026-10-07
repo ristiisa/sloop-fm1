@@ -7,7 +7,8 @@
  *   FX      held + a white key: punch-in; knobs: filter, dust, duck
  *   SEQ     held: the steps on the white keys (drums: the sound played last), OCT: pages, a step key
  *           held + KNOB 2 / 3: level / ratchet
- *   EDIT    held + a key: erase; OCT- / OCT+: undo / redo; KNOB 1 shift, 2 length x2, 4 mutate / back
+ *   EDIT    held + a key: erase; OCT- / OCT+: undo / redo; KNOB 1 shift, 2 length x2, 4 mutate / back;
+ *           PRESETS dice / back, ALGORITHM its style
  *   ARP     held + a key: a roll; KNOB 1 the rate
  *   SCL     held + a key: the key of the song
  *   GLO     held + keys: mute, solo, tap tempo; knobs: levels
@@ -257,6 +258,21 @@ int UI_TEST_MAIN(int argc, char **argv)
         release(B_EDIT);
         steps_clear(&trk[0]);
         song.sel = TRK_DRUM; go_home(); frame();
+    }
+    {   /* EDIT + PRESETS: DICE, a new pattern a detent, back: the one before; EDIT + ALGORITHM: its style */
+        static dstep_t orig[NSTEP];
+        memcpy(orig, TDRUM->dstep, sizeof orig);
+        press(B_EDIT); frames(10);
+        encs[panel.enc[EN_ALGO]] = 1; frame();
+        check(!strcmp(ui.msg, "STYLE HOUSE") && song.sel == TRK_DRUM, "EDIT + ALGORITHM: the DICE style (HOUSE), the track stays");
+        encs[panel.enc[EN_PRESET]] = 1; frame();
+        check(memcmp(orig, TDRUM->dstep, sizeof orig) && !strcmp(ui.msg, "DICE HOUSE 1") && dstep_has(&TDRUM->dstep[4], LANE_KICK),
+              "EDIT + PRESETS right: a HOUSE groove, DICE HOUSE 1");
+        ppm("layer-dice");
+        encs[panel.enc[EN_PRESET]] = -1; frame();
+        check(!memcmp(orig, TDRUM->dstep, sizeof orig) && !strcmp(ui.msg, "DICE 0"), "PRESETS left: the groove before, DICE 0");
+        encs[panel.enc[EN_ALGO]] = -1; frame();
+        release(B_EDIT);
     }
 
     /* ---- ARP layer: a roll, rate knob */
