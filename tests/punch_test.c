@@ -2,6 +2,7 @@
 /* PUNCH-IN FX (punch.c): each of the 16 effects changes the mix while held, stays bounded,
  * and the mix is exactly the dry one again once its key is up (after the 64-sample fade).
  * The FX-held keyboard picks effects with the white keys and never plays or records a note.
+ * LATCH (menu PUNCH): a key switches its effect on and off, FILL stays held, STOP / a load end it.
  * argv[1]: a WAV demo (a beat, then every effect for one beat). */
 #define main hostsim_main
 #include "hostsim.c"
@@ -111,6 +112,114 @@ int main(int argc, char **argv)
         transport_req = 2;
         events_block(CTL);
     }
+    {   /* LATCH (menu PUNCH, after majnikool, isod89/sloop-fm1 #28), on the real keyboard path: a key switches its
+         * effect on and it plays on with the key and FX up; another key changes it, the same key switches it off;
+         * a black key is FILL while held (as with HOLD) and leaves the effect alone; STOP ends it, so does a load
+         * (stopped: project_apply asks for a stop); HOLD again exactly as before */
+        uint32_t n;
+        int64_t wet = 0;
+        beat_setup();                                 /* (asks PLAY) */
+        punch_latch = 1;
+        ly_bit[LY_FX] = 1u << 2;
+        fm1_in.buttons = ly_bit[LY_FX];
+        fm1_in.notes = 1u << 4;
+        mix_block(got, CTL);
+        assert(song.playing && punch.req == 2 && !punch.keybit && kb_kind[4] == KS_FX);
+        fm1_in.notes = 0;
+        fm1_in.buttons = 0;                           /* the key and FX up */
+        for (n = 0; n < 200u; n++)
+            mix_block(got, CTL);
+        assert(punch.req == 2 && punch.cur == 2 && punch.g == 32767);
+        fm1_in.buttons = ly_bit[LY_FX];
+        fm1_in.notes = 1u << 7;                       /* C4: effect 5 */
+        mix_block(got, CTL);
+        fm1_in.notes = 0;
+        mix_block(got, CTL);
+        assert(punch.req == 4 && !punch.keybit);
+        fm1_in.notes = 1u << 1;                       /* a black key: FILL while held */
+        mix_block(got, CTL);
+        assert(fill_keys == 2u && kb_kind[1] == KS_FILL && punch.req == 4);
+        fm1_in.notes = 0;
+        mix_block(got, CTL);
+        assert(!fill_keys && punch.req == 4);
+        for (n = 0; n < 50u; n++)
+            mix_block(got, CTL);
+        assert(punch.cur == 4);
+        fm1_in.notes = 1u << 7;                       /* the same key again: off */
+        mix_block(got, CTL);
+        fm1_in.notes = 0;
+        mix_block(got, CTL);
+        assert(punch.req == -1);
+        for (n = 0; n < 4u; n++)
+            mix_block(got, CTL);
+        assert(punch.cur == -1);
+        {   /* latched, the mix is wet with every key up; off, exactly dry again */
+            int32_t l[CTL], r[CTL], l0[CTL], r0[CTL];
+            uint32_t b, i;
+            fm1_in.notes = 1u << 19;                  /* the 12th white key: CRUSH */
+            mix_block(got, CTL);
+            fm1_in.notes = 0;
+            fm1_in.buttons = 0;
+            mix_block(got, CTL);
+            assert(punch.req == PX_CRUSH);
+            for (b = 0; b < 400u; b++) {
+                test_mix(b, l, r);
+                memcpy(l0, l, sizeof l), memcpy(r0, r, sizeof r);
+                punch_process(l, r, CTL);
+                for (i = 0; i < CTL; i++)
+                    wet += l[i] > l0[i] ? l[i] - l0[i] : l0[i] - l[i];
+            }
+            assert(wet > 2000 * 400);
+            fm1_in.buttons = ly_bit[LY_FX];
+            fm1_in.notes = 1u << 19;
+            mix_block(got, CTL);
+            fm1_in.notes = 0;
+            mix_block(got, CTL);
+            for (b = 0; b < 8u; b++) {
+                test_mix(b, l, r);
+                memcpy(l0, l, sizeof l), memcpy(r0, r, sizeof r);
+                punch_process(l, r, CTL);
+                if (b >= 3u)
+                    for (i = 0; i < CTL; i++)
+                        assert(l[i] == l0[i] && r[i] == r0[i]);
+            }
+        }
+        fm1_in.notes = 1u << 4;                       /* on again, then STOP */
+        mix_block(got, CTL);
+        fm1_in.notes = 0;
+        fm1_in.buttons = 0;
+        mix_block(got, CTL);
+        assert(punch.req == 2);
+        transport_req = 2;
+        mix_block(got, CTL);
+        assert(!song.playing && punch.req == -1);
+        fm1_in.buttons = ly_bit[LY_FX];               /* stopped, latched, a project loaded (project_apply: a stop) */
+        fm1_in.notes = 1u << 4;
+        mix_block(got, CTL);
+        fm1_in.notes = 0;
+        fm1_in.buttons = 0;
+        mix_block(got, CTL);
+        assert(punch.req == 2);
+        transport_req = 2;
+        mix_block(got, CTL);
+        assert(punch.req == -1);
+        punch_latch = 0;                              /* HOLD: while held, and STOP leaves a held key's effect */
+        transport_req = 1;
+        fm1_in.buttons = ly_bit[LY_FX];
+        fm1_in.notes = 1u << 4;
+        mix_block(got, CTL);
+        assert(song.playing && punch.req == 2 && punch.keybit == 1u << 4);
+        transport_req = 2;
+        mix_block(got, CTL);
+        assert(punch.req == 2);
+        fm1_in.notes = 0;
+        mix_block(got, CTL);
+        assert(punch.req == -1);
+        fm1_in.buttons = 0;
+        for (n = 0; n < 4u; n++)
+            mix_block(got, CTL);
+        assert(punch.cur == -1);
+    }
     if (f) {   /* demo: one beat dry, then each effect for one beat with a beat dry between */
         uint32_t beat = FS / 2u / CTL, b, total = beat * (1u + 2u * PUNCH_NFX);
         static int32_t blk[CTL * 2u];
@@ -127,6 +236,7 @@ int main(int argc, char **argv)
         fclose(f);
     }
     printf("punch-in FX: %u effects change the mix while held, bounded, exact dry mix after release; "
-           "FX-held keys pick effects, play and record nothing PASS\n", PUNCH_NFX);
+           "FX-held keys pick effects, play and record nothing; LATCH on / change / off, FILL held, STOP and load end it PASS\n",
+           PUNCH_NFX);
     return 0;
 }

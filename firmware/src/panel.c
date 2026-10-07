@@ -67,7 +67,7 @@ struct { uint32_t magic, palette, lowcut, zoom; } settings __attribute__((sectio
 
 /* the lights (menu LIGHTS / KEYS / NOTES), for playing in the dark: kept in flash with the settings
  * (project.c persist_t.lights), read at every boot; not in .noinit, so nothing there moves. The same
- * word keeps SYNC and the REC screen's MODE / START (seq.c rec_tempo, rec_count) */
+ * word keeps SYNC, the REC screen's MODE / START (seq.c rec_tempo, rec_count) and menu PUNCH (punch.c punch_latch) */
 enum { LIGHTS_OFF, LIGHTS_LOW, LIGHTS_MID, LIGHTS_HIGH, LIGHTS_N };
 enum { KEYS_OFF, KEYS_C, KEYS_WHITE, KEYS_N };
 static uint8_t lights_lvl, lights_keys;
@@ -79,7 +79,7 @@ static uint32_t lights_word(void)
 {
     return (uint32_t)lights_lvl | (uint32_t)lights_keys << 4 | (uint32_t)(lights_notes != 0u) << 8 |
            (uint32_t)(rec_tempo != 0u) << 9 | (uint32_t)(rec_count != 0u) << 10 | (uint32_t)(usb_full != 0u) << 11 |
-           (uint32_t)(lights_sync % 3u) << 12;
+           (uint32_t)(lights_sync % 3u) << 12 | (uint32_t)(punch_latch != 0u) << 14;
 }
 static void lights_from_word(uint32_t w)
 {
@@ -90,6 +90,9 @@ static void lights_from_word(uint32_t w)
     rec_count = (uint8_t)((w >> 10) & 1u);
     usb_full = (uint8_t)((w >> 11) & 1u);       /* menu USB AUDIO (fx.c) */
     lights_sync = (uint8_t)(((w >> 12) & 3u) % 3u);
+    punch_latch = (uint8_t)((w >> 14) & 1u);     /* menu PUNCH (punch.c) */
+    if (!punch_latch)
+        punch_unlatch();                        /* (a backup restored to HOLD: a latched effect ends) */
 }
 
 static void settings_save(void);              /* project.c: flash copy (FELUCCA_FLASH) */

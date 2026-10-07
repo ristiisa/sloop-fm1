@@ -187,6 +187,9 @@ static uint32_t lights_keys_mask(void)
     return m;
 }
 
+/* FX lit while a punch-in is on outside the FX layer (LATCH: with FX let go; the layer shows it on its key) */
+static int punch_led(void) { return punch.req >= 0 && ui.layer != LY_FX; }
+
 static void ui_leds(void)
 {
     uint8_t nl[FM1_NCOL] = {0}, dl[FM1_NCOL] = {0}, bl[FM1_NCOL] = {0};
@@ -198,6 +201,7 @@ static void ui_leds(void)
     }
     led_put(nl, panel.btn[ui.layer != LY_PLAY ? LAYER_BTN[ui.layer] : cur_btn()],
             ly_lock == LY_PLAY || ((fm1_ms / 300u) & 1u) != 0u || (fm1_in.buttons & ly_bit[ly_lock % LY_COUNT]) != 0u);   /* locked: blinks */
+    led_put(nl, panel.btn[B_FX], punch_led());
     led_put(nl, panel.btn[B_PLAY], play_led() || (song.playing && !song.rec && ft_on) ||
                                       (ci_on && ci_u % BEAT_U < BEAT_U / 4u));   /* (the count-in's beats) */
     led_put(nl, panel.btn[B_REC], song.rec != 0u || ft_on || (rec_wait && ((fm1_ms / 125u) & 1u)) ||

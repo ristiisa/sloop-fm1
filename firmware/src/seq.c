@@ -1841,10 +1841,8 @@ static void key_down(uint32_t k)
             fill_keys |= 1u << k;
             return;
         }
-        if (fx < (int32_t)PUNCH_NFX) {
-            punch.req = (int8_t)fx;
-            punch.keybit = 1u << k;
-        }
+        if (fx < (int32_t)PUNCH_NFX)
+            punch_press(fx, k);                       /* (HOLD: while the key is held; LATCH: on / off) */
         return;
     }
     case LY_STEP:
@@ -2175,6 +2173,7 @@ static void seq_stop(void)
     live_req = -1;
 #endif
     song.playing = 0;
+    punch_unlatch();                               /* STOP (the song's end, a load) ends a latched punch-in */
     for (i = 0; i < NTRK; i++) {
         seq_release(&trk[i]);
         plk_drop(&trk[i]);                         /* the tracks' own values */

@@ -345,6 +345,7 @@ See [BUILDING.md](BUILDING.md). In short: the JieLi toolchain and three files of
 
 - **[Felucca](https://github.com/hugelton/Felucca)** by **Leo Kuroshita** (@kurogedelic) / **Hügelton Instruments** — the engines, the sequencer, the editor, the installer, and in 2.3 the USB audio input, the MIDI clock, the knob reading and many fixes (Felucca 1.0 / 1.0.1). Thank you.
 - **@renebohne** — the played-note key lights (pull request #11).
+- **majnikool** — the punch-in LATCH (pull request #28).
 - **ChanceTheMaker** and **keremimo** — the TRS MIDI input fix (Felucca Salt) and contributions to the MIDI clock.
 - **Everyone who installed SLOOP, made music with it, commented, reported a bug or asked for a feature** — most of 2.3 comes from your messages.
 - Samples: Versilian Studios VSCO-2 CE and VCSL, Sonic Pi (all CC0). Font: Terminus (SIL OFL 1.1). Icons: Fukiai (MIT, Hügelton Instruments). PHASE engine after CrispyZebra (GPL); VOICE after klattsch (MIT).

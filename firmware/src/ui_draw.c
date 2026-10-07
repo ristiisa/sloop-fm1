@@ -36,17 +36,17 @@ static int32_t batt_shown(void)
     return batt_level();
 }
 
-/* top bar: transport, BPM, octave | USB, battery, CPU; messages replace it */
+/* top bar: transport, BPM, octave | a punch-in on, track | USB, battery, CPU; messages replace it */
 static void draw_head(void)
 {
     char b[16];
     uint32_t i;
-    int32_t x;
+    int32_t x, px = punch.req;                        /* the punch-in effect on (LATCH: FX let go), or -1 */
     uint32_t rec = (song.rec >> song.sel) & 1u ? 2u : song.rec != 0u;   /* 2 the selected track armed, 1 another */
     uint32_t sig = (uint32_t)song.playing * 3u + rec * 5u + (uint32_t)(song.octave + 8) * 11u + song.sel * 13131u +
                    (ui.msg_t ? str_hash(7u, ui.msg) : 0u) + (uint32_t)song.g[G_BPM] * 101u + (ui.bpm_t != 0) * 31u +
                    (uint32_t)batt_shown() * 7777u + (usb.config && !usb.suspended) * 99991u +
-                   (plk_view() ? plk_held() * 131u + 7919u : 0u);
+                   (plk_view() ? plk_held() * 131u + 7919u : 0u) + (uint32_t)(px + 1) * 10007u;
     if (!ui.force && sig == ui.head_sig)
         return;
     ui.head_sig = sig;
@@ -84,6 +84,13 @@ static void draw_head(void)
         fmt_int(b + str_len(b), song.octave);
         cv_text(x + 12, 1, &FONT_S, "OCT", C_GRAY);
         cv_text(x + 40, 1, &FONT_S, b, C_HI);
+    }
+    if (px >= 0) {                                    /* a punch-in on: a disc in the FX layer's colour; its name where
+                                                       * the octave / P-LOCK would be */
+        int busy = song.octave || plk_view();
+        te_disc(busy ? 147 : x + 14, 9, 4, TE_DRUM);
+        if (!busy)
+            cv_text(x + 22, 1, &FONT_S, PUNCH_SHORT[(uint32_t)px % PUNCH_NFX], TE_DRUM);
     }
     if (FELUCCA_ICONS) {                              /* the selected track: tape + number */
         cv_icon(156, 2, ICON_TAPE, C_GRAY);
