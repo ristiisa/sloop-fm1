@@ -2,7 +2,10 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Parameter descriptors, formatting and the page table. */
 static const char *const N_LWAVE[] = {"SIN", "TRI", "SAW", "SQR", "S&H"};
-static const char *const N_AMODE[] = {"OFF", "UP", "DN", "UPDN", "RND", "ORD"};
+static const char *const N_AMODE[] = {"OFF", "UP", "DN", "UPDN", "RND", "ORD", "UPDN+", "CONV", "DIVG",
+                                     "THMB", "PNKY", "DRNK", "SHUF", "OCTI", "CHRD"};   /* seq.c A_* */
+static const char *const N_AACC[] = {"OFF", "1IN2", "1IN3", "1IN4", "3-3-2", "RND"};   /* seq.c arp_vel */
+static const char *const N_ARAT[] = {"X1", "X2", "X3", "X4"};
 static const char *const N_DIV[] = {"1/4", "1/8", "1/16", "1/32", "8T", "16T"};
 static const char *const N_SCALE[] = {"CHR", "MAJ", "MIN", "DOR", "MIX", "PEN", "MPEN", "HARM",
                                     "PHRY", "LYD", "LOC", "MEL", "BLUES", "WHOLE", "DIMHW", "DIMWH"};
@@ -82,6 +85,10 @@ static const param_desc_t TP[P_COUNT] = {
     [P_SLRATE] = PE("RATE", N_SLDIV, 1),
     [P_SLDEPTH] = PD("DEPTH", F_PCT, 0, 127, 127),
     [P_CHORD] = PE("CHORD", N_CHORD, 0),
+    [P_AACC] = PE("ACC", N_AACC, 0),
+    [P_AHITS] = PD("HITS", F_INT, 1, 16, 16),       /* HITS >= STEPS: every step */
+    [P_ASTEPS] = PD("STEPS", F_INT, 1, 16, 16),
+    [P_ARAT] = PE("RAT", N_ARAT, 0),
 };
 /* a preset's extra parameters (preset_t.x) into p, each clamped to its range */
 static void preset_extras(int16_t *p, const preset_t *pr)
@@ -300,6 +307,7 @@ static const page_t PAGES[] = {
     {"TOOLS", FAM_SAVE, SC_GLOBAL, GR_NONE, {G_CLRSEQ, G_INITSND, 0xFF, G_NEWPRJ}},
     {"ARP", FAM_ARP, SC_TRACK, GR_ARP, {P_AMODE, P_ARATE, P_AOCT, P_AGATE}},
     {"ARP 2", FAM_ARP, SC_TRACK, GR_NONE, {P_ASWING, P_APROB, P_AHOLD, P_AORDER}},
+    {"ARP 3", FAM_ARP, SC_TRACK, GR_NONE, {P_AACC, P_AHITS, P_ASTEPS, P_ARAT}},
     {"STEP", FAM_SEQ, SC_STEP, GR_ROLL, {0, 1, 2, 3}},
     {"PATTERN", FAM_SEQ, SC_TRACK, GR_STEPS, {P_SLEN, P_SDIV, P_SSWING, P_SGATE}},
     {"SONG", FAM_SEQ, SC_SONG, GR_NONE, {0xFF, 0xFF, 0xFF, 0xFF}},

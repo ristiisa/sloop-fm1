@@ -200,6 +200,22 @@ Hold EDIT and press a key: that sound (drums) or that note (synths; with CHORD o
 
 Hold ARP and hold a key: it repeats on the grid at the **RATE** of KNOB 1 — 1/8, 1/16, 1/32, 32T, 1/64 — locked to the tempo and the swing, so it always lands in time. On the drum track OCT− / OCT+ make it ghost / hard. While recording, a roll is written as ratchets (a 1/32 roll on a 1/16 track: x2 on each step). Rolls end with their key.
 
+### ARP pages — the arpeggiator
+
+Tap ARP for the arpeggiator of the track: hold notes and it plays them on the grid of **RATE**, locked to the tempo.
+
+- **ARP** — **MODE**, **RATE**, **OCT** (1–4 octaves), **GATE**. The modes, on C E G B:
+  - **UP** C E G B · **DN** B G E C · **UPDN** C E G B G E · **UPDN+** C E G B B G E C (the ends twice)
+  - **RND** any note · **ORD** as played
+  - **CONV** C B E G (outside in) · **DIVG** G E B C (inside out)
+  - **THMB** C E C G C B (the lowest between the others) · **PNKY** B C B E B G (the highest)
+  - **DRNK** a random walk, one note up or down · **SHUF** every note once a round, a new order each round
+  - **OCTI** C C' E E' G G' (each note with its octaves, at least two) · **CHRD** all the notes at once, an octave up each step over OCT
+- **ARP 2** — **SWG**, **PROB** (the chance a step plays), **HOLD** (the notes stay after the keys), **ORD** (the notes sorted or as played).
+- **ARP 3** — the rhythm. **ACC** accents: hard on 1 step in 2, 3 or 4, on **3-3-2** or at random, soft between. **HITS** of **STEPS**: an euclidean rhythm (3 of 8: X..X..X.); a rest does not move the order on; HITS ≥ STEPS plays every step. **RAT** ×1–×4: each note repeats inside its step.
+
+While recording, the arp records what it plays: its notes, an accent as a level, a ratchet as a ratchet.
+
 ### SEQ — steps (step sequencer)
 
 The 16 white keys are the 16 steps of the page; the lit ones play. The first four black keys (F#3, G#3, A#3, C#4) or **OCT− / OCT+** pick page 1–4 (steps 1–16, 17–32, 33–48, 49–64, up to the track's LENGTH).

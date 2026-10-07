@@ -660,63 +660,193 @@ static void arp_remove(track_t *t, uint32_t note)
     t->nheld = (uint8_t)k;
 }
 
-/* the next note of the arp: the held notes (sorted or as played) over OCT octaves, by MODE */
-static uint32_t arp_next(track_t *t)
+/* arp MODE (params.c N_AMODE) */
+enum { A_OFF, A_UP, A_DN, A_UPDN, A_RND, A_ORD, A_UPDN2, A_CONV, A_DIVG, A_THMB, A_PNKY, A_DRNK, A_SHUF, A_OCTI,
+       A_CHRD };
+
+/* the held notes (sorted, or as played: ORD), one octave after the other over OCT octaves; OCTI: each
+ * note in its octaves before the next (at least two) */
+static uint32_t arp_list(const track_t *t, uint32_t *list)
 {
-    uint32_t cnt, list[64], len = 0, i, j, o;
-    for (i = 0; i < t->nheld; i++)
+    uint32_t cnt = t->nheld, len = 0, i, j, o, mode = (uint32_t)t->p[P_AMODE], oct = (uint32_t)t->p[P_AOCT];
+    for (i = 0; i < cnt; i++)
         list[i] = t->held[i];
-    cnt = t->nheld;
-    if (!t->p[P_AORDER])
+    if (!t->p[P_AORDER] && mode != A_ORD)
         for (i = 1; i < cnt; i++)
             for (j = i; j > 0 && list[j - 1] > list[j]; j--) {
                 uint32_t x = list[j];
                 list[j] = list[j - 1];
                 list[j - 1] = x;
             }
-    for (o = 0; o < (uint32_t)t->p[P_AOCT]; o++)
+    if (mode == A_OCTI) {
+        uint32_t base[16];
+        oct = oct < 2u ? 2u : oct;
+        for (i = 0; i < cnt; i++)
+            base[i] = list[i];
+        for (i = 0; i < cnt; i++)
+            for (o = 0; o < oct && len < 64u; o++)
+                list[len++] = (uint32_t)clamp((int32_t)base[i] + 12 * (int32_t)o, 0, 127);
+        return len;
+    }
+    for (o = 0; o < oct; o++)
         for (i = 0; i < cnt && len < 64u; i++)
             list[len++] = (uint32_t)clamp((int32_t)list[i] + 12 * (int32_t)o, 0, 127);
+    return len;
+}
+
+/* SHUF: a random place not yet played this round; a new round never starts with the last one */
+static uint32_t arp_shuffle(track_t *t, uint32_t len, uint32_t first)
+{
+    uint32_t m[2], n = 0, i, r, avoid = 64u;
+    m[0] = len >= 32u ? 0xFFFFFFFFu : (1u << len) - 1u;
+    m[1] = len >= 64u ? 0xFFFFFFFFu : len > 32u ? (1u << (len - 32u)) - 1u : 0u;
+    if (first)
+        t->arp_bag[0] = t->arp_bag[1] = 0;
+    t->arp_bag[0] &= m[0];
+    t->arp_bag[1] &= m[1];
+    if (!t->arp_bag[0] && !t->arp_bag[1]) {
+        t->arp_bag[0] = m[0];
+        t->arp_bag[1] = m[1];
+        if (!first && len > 1u)
+            avoid = t->arp_walk;
+    }
+    for (i = 0; i < len; i++)
+        n += i != avoid && ((t->arp_bag[i >> 5] >> (i & 31u)) & 1u);
+    r = rng() % n;
+    for (i = 0; i < len; i++)
+        if (i != avoid && ((t->arp_bag[i >> 5] >> (i & 31u)) & 1u) && !r--)
+            break;
+    t->arp_bag[i >> 5] &= ~(1u << (i & 31u));
+    return i;
+}
+
+/* the next note of the arp, by MODE */
+static uint32_t arp_next(track_t *t)
+{
+    uint32_t list[64], len = arp_list(t, list), i, j, k, cyc;
     t->arp_idx++;
+    i = t->arp_idx;
     switch (t->p[P_AMODE]) {
-    case 2:
-        j = len - 1u - t->arp_idx % len;
+    case A_DN:
+        j = len - 1u - i % len;
         break;
-    case 3: {
-        uint32_t cyc = len > 1u ? 2u * len - 2u : 1u, k = t->arp_idx % cyc;
+    case A_UPDN:                                 /* the ends once: C E G E */
+        cyc = len > 1u ? 2u * len - 2u : 1u;
+        k = i % cyc;
         j = k < len ? k : cyc - k;
         break;
-    }
-    case 4:
+    case A_UPDN2:                                /* the ends twice: C E G G E C */
+        k = i % (2u * len);
+        j = k < len ? k : 2u * len - 1u - k;
+        break;
+    case A_RND:
         j = rng() % len;
         break;
-    default:
-        j = t->arp_idx % len;
+    case A_CONV:                                 /* outside in: C B E G */
+    case A_DIVG:                                 /* inside out: G E B C */
+        k = t->p[P_AMODE] == A_CONV ? i % len : len - 1u - i % len;
+        j = k & 1u ? len - 1u - k / 2u : k / 2u;
+        break;
+    case A_THMB:                                 /* the lowest between the others: C E C G C B */
+    case A_PNKY:                                 /* the highest between the others: B C B E B G */
+        if (len < 2u) {
+            j = 0;
+            break;
+        }
+        k = i % (2u * len - 2u);
+        j = t->p[P_AMODE] == A_THMB ? (k & 1u ? 1u + k / 2u : 0u) : (k & 1u ? k / 2u : len - 1u);
+        break;
+    case A_DRNK:                                 /* a random walk: one place up or down */
+        j = t->arp_walk;
+        if (!i || len < 2u)
+            j = 0;
+        else if (j >= len - 1u)
+            j = len - 2u;
+        else if (!j || (rng() & 1u))
+            j++;
+        else
+            j--;
+        break;
+    case A_SHUF:                                 /* every place once a round, in a new order each round */
+        j = arp_shuffle(t, len, !i);
+        break;
+    default:                                     /* UP, ORD (as played), OCTI */
+        j = i % len;
         break;
     }
+    t->arp_walk = (uint8_t)j;
     return list[j];
 }
 
+/* CHRD: every held note at once, an octave higher each step over OCT octaves (up to 8 notes) */
+static uint32_t arp_chord(track_t *t, uint8_t *out)
+{
+    uint32_t i, n = 0, o;
+    t->arp_idx++;
+    o = t->arp_idx % (uint32_t)t->p[P_AOCT];
+    for (i = 0; i < t->nheld && n < 8u; i++)
+        out[n++] = (uint8_t)clamp((int32_t)t->held[i] + 12 * (int32_t)o, 0, 127);
+    return n;
+}
+
+/* ACC: the velocity of the arp step at grid place pos; OFF: as the keys play (100) */
+static uint32_t arp_vel(const track_t *t, uint32_t pos)
+{
+    uint32_t a = (uint32_t)t->p[P_AACC], hit;
+    if (!a)
+        return 100;
+    if (a < 4u)
+        hit = pos % (a + 1u) == 0u;                 /* 1IN2 .. 1IN4 */
+    else if (a == 4u)
+        hit = (0x49u >> (pos & 7u)) & 1u;           /* 3-3-2: X..X..X. */
+    else
+        hit = (rng() & 3u) == 0u;
+    return lvl_vel(hit ? LV_HARD : LV_SOFT, 100);
+}
+
+/* HITS of STEPS: an euclidean rhythm, its first hit on place 0 */
+static int arp_hit(const track_t *t, uint32_t pos)
+{
+    uint32_t k = (uint32_t)t->p[P_AHITS], n = (uint32_t)t->p[P_ASTEPS];
+    return k >= n || (pos % n) * k % n < k;
+}
+
+static void arp_sound(track_t *t, uint32_t len)
+{
+    uint32_t i;
+    for (i = 0; i < t->arp_n; i++)
+        trk_note_on(t, t->arp_ch[i], t->arp_vel);
+    t->arp_snd = 1;
+    t->arp_off = len * (uint32_t)t->p[P_AGATE] / 128u;
+}
+
+static void arp_release(track_t *t)
+{
+    uint32_t i;
+    if (t->arp_snd)
+        for (i = 0; i < t->arp_n; i++)
+            trk_note_off(t, t->arp_ch[i]);
+    t->arp_snd = 0;
+}
+
 /* the arp, once per block: on the transport's grid of RATE (with its SWING) while playing, from the
- * first key while stopped. A new chord starts at once unless the grid is just ahead. While recording,
- * each note it plays is recorded (what you hear) */
+ * first key while stopped. A new chord starts at once unless the grid is just ahead. Each step: HITS
+ * of STEPS and PROB decide if it plays, ACC its velocity, RAT how many times. While recording, each
+ * step it plays is recorded (what you hear) */
 static void arp_tick(track_t *t, uint32_t adv)
 {
-    uint32_t den = DIV_DEN[(uint32_t)t->p[P_ARATE] % 6u], u = BEAT_U / den, into, slen, abs = 0, fire = 0;
-    if (t->arp_note) {
-        if (t->arp_off <= adv) {
-            trk_note_off(t, t->arp_note);
-            t->arp_note = 0;
-        } else {
+    uint32_t den = DIV_DEN[(uint32_t)t->p[P_ARATE] % 6u], u = BEAT_U / den, into, slen, abs = 0, fire = 0, pos, rat, i;
+    if (t->arp_snd) {
+        if (t->arp_off <= adv)
+            arp_release(t);
+        else
             t->arp_off -= adv;
-        }
     }
     if (!t->p[P_AMODE] || !t->nheld) {
-        if (!t->nheld && t->arp_note) {
-            trk_note_off(t, t->arp_note);
-            t->arp_note = 0;
-        }
+        if (!t->nheld)
+            arp_release(t);
         t->arp_new = 0;
+        t->arp_rat = 0;
         return;
     }
     if (song.playing) {
@@ -729,10 +859,12 @@ static void arp_tick(track_t *t, uint32_t adv)
             abs = t->arp_abs;                       /* ARP SWG turned up inside an odd step: no replay */
         fire = abs != t->arp_abs;
         t->arp_abs = abs;
+        pos = abs;
     } else {
         if (t->arp_new) {
             t->arp_new = 0;
             t->arp_pos = u;
+            t->arp_step = 0;
         }
         slen = u;
         t->arp_pos += adv;
@@ -740,20 +872,43 @@ static void arp_tick(track_t *t, uint32_t adv)
             t->arp_pos = t->arp_pos - u < u ? t->arp_pos - u : 0;
             fire = 1;
         }
+        pos = t->arp_step;
     }
-    if (!fire)
+    if (!fire) {
+        if (t->arp_rat && t->arp_n) {               /* the ratchet's next hit */
+            if (t->arp_sub > adv) {
+                t->arp_sub -= adv;
+            } else {
+                t->arp_sub = t->arp_sub + t->arp_sl > adv ? t->arp_sub + t->arp_sl - adv : 1u;
+                t->arp_rat--;
+                arp_release(t);
+                arp_sound(t, t->arp_sl);
+            }
+        }
         return;
-    if (t->arp_note)
-        trk_note_off(t, t->arp_note);
-    t->arp_note = 0;
-    if ((uint32_t)(rng() & 127u) <= (uint32_t)t->p[P_APROB]) {
-        uint32_t n = arp_next(t);
-        t->arp_note = (uint8_t)n;
-        t->arp_off = slen * (uint32_t)t->p[P_AGATE] / 128u;
-        trk_note_on(t, n, 100);
-        if (((song.rec >> trk_index(t)) & 1u) && song.playing)
-            rec_note(t, n, 100, 0, 0);
     }
+    if (!song.playing)
+        t->arp_step++;
+    arp_release(t);
+    t->arp_n = 0;
+    t->arp_rat = 0;
+    if (!arp_hit(t, pos) || (uint32_t)(rng() & 127u) > (uint32_t)t->p[P_APROB])
+        return;
+    if (t->p[P_AMODE] == A_CHRD) {
+        t->arp_n = (uint8_t)arp_chord(t, t->arp_ch);
+    } else {
+        t->arp_ch[0] = (uint8_t)arp_next(t);
+        t->arp_n = 1;
+    }
+    rat = (uint32_t)t->p[P_ARAT] & 3u;
+    t->arp_vel = (uint8_t)arp_vel(t, pos);
+    t->arp_rat = (uint8_t)rat;
+    t->arp_sl = slen / (rat + 1u);
+    t->arp_sub = t->arp_sl;
+    arp_sound(t, t->arp_sl);
+    if (((song.rec >> trk_index(t)) & 1u) && song.playing)
+        for (i = 0; i < t->arp_n && i < 4u; i++)
+            rec_note(t, t->arp_ch[i], t->arp_vel, rat, 0);
 }
 
 /* ------------------------------------------------------- note input --- */
@@ -1645,7 +1800,7 @@ static void events_block(uint32_t n)
             trk_all_off(t);
             t->nheld = 0;
             t->arp_phys = 0;
-            t->arp_note = 0;
+            t->arp_n = t->arp_snd = t->arp_rat = 0;
         }
         if (i < NPART)
             engine_block(t);                          /* engine switch: fade, then switch (voice.c) */
@@ -1654,10 +1809,8 @@ static void events_block(uint32_t n)
             t->nheld = 0;
             if (!t->p[P_AMODE])
                 t->arp_phys = 0;
-            if (t->arp_note) {
-                trk_note_off(t, t->arp_note);
-                t->arp_note = 0;
-            }
+            arp_release(t);
+            t->arp_rat = 0;
         }
         t->armp = t->p[P_AMODE];
         t->aholdp = t->p[P_AHOLD];
