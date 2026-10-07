@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Host test of the project formats (firmware/src/project.c, -DPROJ_HOST part). Format 6 ("FUN6",
  * SLOOP 2.5: 10-byte steps with levels and ratchets, the drum track's 16 lanes, the arp rhythm, ROT /
- * SYNC / RHYM / DEJA) is written; format 5 ("FUN5", SLOOP 2.4), format 4 ("FUN4", SLOOP 2.0..2.3), format 3 ("FUN3", SLOOP 1.x), format 2 ("FUN2", 53 parameters per track) and format 1 ("FUN1"), built
+ * SYNC / RHYM / DEJA, a condition per step) is written; format 5 ("FUN5", SLOOP 2.4), format 4 ("FUN4", SLOOP 2.0..2.3), format 3 ("FUN3", SLOOP 1.x), format 2 ("FUN2", 53 parameters per track) and format 1 ("FUN1"), built
  * byte for byte as the firmware stored them, convert: every old value at its parameter, the parameters
  * added since at their defaults, the swings onto the MPC scale (x 0.8), synth steps as they were, the
  * drum track's notes onto its lanes (accent: hard), globals, selection, the engine bytes (kept; the
@@ -124,9 +124,11 @@ int main(void)
     bad += check("layout: P_CHORD, the arp rhythm, ROT..DEJA, P_E0 (58); P_COUNT = format 5's + 4",
                  P_CHORD + 1 == P_AACC && P_ARAT + 1 == P_AROT && P_ADEJA + 1 == P_E0 && P_E0 == 58 &&
                  P_COUNT == PROJ_NP_V5 + 4u && P_COUNT == PROJ_NP_V4 + 8u && P_SLDEPTH + 1 == P_CHORD);
-    bad += check("format 6 is 3176 bytes (format 5's + 32), fits one flash object; 4 slots fit .noinit",
-                 sizeof(project_t) == 3176u && sizeof(project_t) == sizeof(project_v5_t) + 32u &&
-                 sizeof(project_t) <= 4096u - 256u && 4u * sizeof(project_t) < 0x3D50u - 1024u);
+    bad += check("format 6: format 5's + 32 (ROT..DEJA) + a condition byte per step and track, before the sum",
+                 sizeof(project_t) == sizeof(project_v5_t) + 32u + NTRK * NSTEP &&
+                 __builtin_offsetof(project_t, cond) + NTRK * NSTEP + 4u == sizeof(project_t));
+    bad += check("format 6 fits one flash object; 4 slots fit .noinit", sizeof(project_t) <= 4096u - 256u &&
+                 4u * sizeof(project_t) < 0x3D50u - 1024u);
 
     /* format 3 (SLOOP 1.x) */
     memset(&v3, 0, sizeof v3);
@@ -226,7 +228,7 @@ int main(void)
         bad += check("FUN4 with a bad checksum: refused", !proj_import(&q2, &buf, (int)sizeof v4));
     }
 
-    /* format 5 (SLOOP 2.4): by id up to P_ARAT, ROT / SYNC / RHYM / DEJA their defaults, P_E0.. moved */
+    /* format 5 (SLOOP 2.4): by id up to P_ARAT, ROT / SYNC / RHYM / DEJA their defaults, P_E0.. moved, every condition ALWAYS */
     {
         static project_v5_t v5;
         uint32_t k;
@@ -257,8 +259,10 @@ int main(void)
             for (k = 0; k < 8u; k++)
                 ok &= q.t[t].p[P_E0 + k] == oldv(t, PROJ_NP_V5 - 8u + k);
             ok &= q.t[t].engine == OLD_ENG[t] && q.t[t].preset == t + 4u && !memcmp(q.t[t].step, v5.t[t].step, sizeof q.t[t].step);
+            for (k = 0; k < NSTEP; k++)
+                ok &= q.cond[t][k] == CN_ALWAYS;
         }
-        bad += check("FUN5 -> FUN6: parameters by id, ROT..DEJA default, P_E0.. moved, steps, lanes", ok);
+        bad += check("FUN5 -> FUN6: parameters by id, ROT..DEJA default, P_E0.. moved, steps, lanes, conditions ALWAYS", ok);
         v5.t[1].p[50]++;
         memcpy(&buf, &v5, sizeof v5);
         bad += check("FUN5 with a bad checksum: refused", !proj_import(&q2, &buf, (int)sizeof v5));
@@ -279,6 +283,14 @@ int main(void)
     memcpy(&buf, &q, sizeof q);
     bad += check("FUN6 -> FUN6: as stored (levels, ratchets, lanes, engine 8, RHYM, DEJA)",
                  proj_import(&q2, &buf, (int)sizeof q) && !memcmp(&q, &q2, sizeof q) && q2.t[1].engine == 8);
+    q.cond[0][3] = CN_1_4;
+    q.cond[TRK_DRUM][5] = CN_P25;
+    q.cond[2][63] = CN_NFIRST;
+    q.sum = proj_sum(&q);
+    memcpy(&buf, &q, sizeof q);
+    bad += check("FUN6 -> FUN6: as stored (levels, ratchets, lanes, engine 8, conditions)",
+                 proj_import(&q2, &buf, (int)sizeof q) && !memcmp(&q, &q2, sizeof q) && q2.t[1].engine == 8 &&
+                 q2.cond[0][3] == CN_1_4 && q2.cond[TRK_DRUM][5] == CN_P25 && q2.cond[2][63] == CN_NFIRST);
 
     /* damaged / wrong size */
     v2.t[1].p[3]++;
@@ -317,10 +329,17 @@ int main(void)
     trk[1].step[2].n = 2, trk[1].step[2].note[0] = 60, trk[1].step[2].note[1] = 64, trk[1].step[2].time = ST_NOTE;
     trk[1].step[2].lvl = 0x0D;
     dstep_set(&TDRUM->dstep[9], 4, LV_SOFT, 1);
+    trk[1].cond[2] = CN_FILL;
+    TDRUM->cond[9] = CN_2_3;
     song.g[G_DUST] = 33;
     proj_capture(&q);
     host_tracks_init();
     proj_apply(&q, 1);
+    ok = trk[1].cond[2] == CN_FILL && TDRUM->cond[9] == CN_2_3 && trk[0].cond[2] == CN_ALWAYS;
+    q.cond[3][1] = 200;                                /* (out of range: ALWAYS) */
+    proj_apply(&q, 1);
+    ok &= TDRUM->cond[1] == CN_ALWAYS;
+    bad += check("the working project: conditions captured / applied (bad ones ALWAYS)", ok);
     ok = trk[2].p[P_SLEN] == 7 && trk[1].step[2].n == 2 && trk[1].step[2].lvl == 0x0D && song.g[G_DUST] == 33 &&
          dstep_has(&TDRUM->dstep[9], 4) && dstep_lvl(&TDRUM->dstep[9], 4) == LV_SOFT && dstep_rat(&TDRUM->dstep[9], 4) == 1u;
     bad += check("the working project: capture -> apply round trip (levels, lanes, DUST)", ok);

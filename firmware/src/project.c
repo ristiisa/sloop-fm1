@@ -7,8 +7,9 @@
  * left it.
  *
  * Formats: 6 ("FUN6", written, SLOOP 2.5): today's P_COUNT / G_COUNT, 10-byte steps (levels and
- * ratchets; the drum track: 16 lanes). Read and converted: 5 ("FUN5", SLOOP 2.4: PROJ_NP_V5 parameters,
- * mapped by id up to P_ARAT, ROT / SYNC / RHYM / DEJA their defaults), 4 ("FUN4", SLOOP 2.0..2.3: PROJ_NP_V4
+ * ratchets; the drum track: 16 lanes), then a condition per step of every track (seq.c CN_*). Read and
+ * converted: 5 ("FUN5", SLOOP 2.4: PROJ_NP_V5 parameters, mapped by id up to P_ARAT, ROT / SYNC / RHYM /
+ * DEJA their defaults, every condition ALWAYS), 4 ("FUN4", SLOOP 2.0..2.3: PROJ_NP_V4
  * parameters, mapped by id up to P_CHORD, the arp rhythm their defaults), 3 ("FUN3", SLOOP 1.x: 8-byte steps, the
  * drum track's notes become its lanes, the swings x 0.8 for the MPC scale), 2 ("FUN2") and 1 ("FUN1"),
  * which held PROJ_NP_V2 parameters per track, mapped by count as user presets are (the first
@@ -18,8 +19,8 @@
  *
  * Built on the host too (tests/project_test.c, -DPROJ_HOST): the part above the #ifndef
  * PROJ_HOST needs core.h, params.c (TP), drums.c (the lanes), the engines and trk_def_engine (ui.c). */
-#define PROJ_MAGIC 0x46554E36u                 /* "FUN6": four tracks, P_COUNT parameters each, 10-byte steps */
-#define PROJ_MAGIC_V5 0x46554E35u              /* "FUN5": SLOOP 2.4, PROJ_NP_V5 parameters; read only */
+#define PROJ_MAGIC 0x46554E36u                 /* "FUN6": four tracks, P_COUNT parameters each, 10-byte steps, conditions */
+#define PROJ_MAGIC_V5 0x46554E35u              /* "FUN5": SLOOP 2.4, PROJ_NP_V5 parameters, no conditions; read only */
 #define PROJ_MAGIC_V4 0x46554E34u              /* "FUN4": SLOOP 2.0..2.3, PROJ_NP_V4 parameters; read only */
 #define PROJ_MAGIC_V3 0x46554E33u              /* "FUN3": SLOOP 1.x; read only */
 #define PROJ_MAGIC_V2 0x46554E32u              /* "FUN2": four tracks, PROJ_NP_V2 parameters; read only */
@@ -43,6 +44,7 @@ typedef struct {
     int16_t g[G_COUNT];
     uint8_t sel, rsv[3];                       /* the selected track */
     proj_trk_t t[NTRK];
+    uint8_t cond[NTRK][NSTEP];                 /* the step conditions (seq.c CN_*, 0 = ALWAYS) */
     uint32_t sum;
 } project_t;
 typedef struct {                               /* a track of format 5, read only */
@@ -334,6 +336,7 @@ static void proj_capture(project_t *p)        /* what is playing now, as a proje
         p->t[i].engine = trk[i].eng_req;
         p->t[i].preset = trk[i].preset;
         memcpy(p->t[i].step, trk[i].step, sizeof trk[i].step);
+        memcpy(p->cond[i], trk[i].cond, sizeof trk[i].cond);
     }
     p->sum = proj_sum(p);
 }
@@ -360,6 +363,8 @@ static void proj_apply(const project_t *p, int all)
         }
         t->preset = (uint8_t)(ENGINES[e]->npresets ? (s->preset == 0xFFu ? 0u : s->preset) % ENGINES[e]->npresets : 0u);
         memcpy(t->step, s->step, sizeof t->step);
+        for (i = 0; i < NSTEP; i++)
+            t->cond[i] = (uint8_t)(p->cond[k][i] < CN_COUNT ? p->cond[k][i] : CN_ALWAYS);
         if (k != TRK_DRUM)
             for (i = 0; i < NSTEP; i++) {
                 step_t *st = &t->step[i];

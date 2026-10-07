@@ -102,8 +102,8 @@ static uint32_t keys_lit(void)
     uint32_t m = 0, i, blink = (fm1_ms / 125u) & 1u;
     track_t *t = TSEL;
     switch (ui.layer) {
-    case LY_FX:
-        return punch.req >= 0 ? 1u << key_of_white((uint32_t)punch.req) : 0u;
+    case LY_FX:                                    /* the effect on; FILL: its black keys */
+        return (punch.req >= 0 ? 1u << key_of_white((uint32_t)punch.req) : 0u) | fill_keys;
     case LY_STEP: {                                /* the steps that play; the playhead blinks */
         uint32_t len = trk_len(t);
         for (i = 0; i < 16u; i++) {
@@ -512,6 +512,7 @@ static void layer_tap(uint32_t layer)
         if (layer == LY_ERASE && song.seq_mode && cur_page()->scope == SC_STEP && !is_drum(TSEL)) {
             undo_mark(TSEL, (undo_sess += 4u) | 3u);      /* STEP page: EDIT clears the step */
             step_clear(&TSEL->step[ui.cursor]);
+            TSEL->cond[ui.cursor] = CN_ALWAYS;
             cursor_set(ui.cursor + 1);
             ui_message("STEP CLEARED");
             break;

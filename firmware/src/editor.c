@@ -879,6 +879,8 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         if (na >= 10u) {
             fm1_irq_off();
             ed_step_in(&trk[a[0]], a[1], a + 2, na - 2u);
+            if (!step_sounds(&trk[a[0]], a[1]))
+                trk[a[0]].cond[a[1]] = CN_ALWAYS;        /* (an empty step has no condition) */
             fm1_irq_on();
             ui.force = 1;
         }
@@ -904,6 +906,8 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             for (i = 0; i < DRUM_LANES; i++)
                 if ((on >> i) & 1u)
                     dstep_set(d, i, (lv >> (2u * i)) & 3u, (rt >> (2u * i)) & 3u);
+            if (!on)
+                TDRUM->cond[a[0]] = CN_ALWAYS;
             fm1_irq_on();
             ui.force = 1;
             if (song.sel == TRK_DRUM)

@@ -86,6 +86,8 @@ $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/arp_test" tests/arp_test.c -lm
 run "arp: the modes on C E G B, accents, HITS of STEPS, ratchets, ROT, SYNC, RHYM, DEJA, recording" "$OUT/arp_test"
 $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/mutate_test" tests/mutate_test.c -lm
 run "mutate: invariants over thousands of passes, kicks on the beats, a little a pass, exact undo" "$OUT/mutate_test"
+$CC -O2 -w -Ibuild/gen -Ifirmware/src -Ifirmware/hal -o "$OUT/cond_test" tests/cond_test.c -lm
+run "step conditions: chance, a:b, FIRST, FILL, drums and synths, shift / x2 / undo, recording" "$OUT/cond_test"
 run "DSP render (ANALOG preset 0)" "$OUT/hostsim" 0 0 1 "$OUT/render.wav"
 mkdir -p build/tracks_demo
 run "TRACKS: 4-track pattern, live recording (lengths, swing), voice budget, engine switch, cost" env TRACKS=build/tracks_demo "$OUT/hostsim" 0 0 1 "$OUT/tracks.wav"
