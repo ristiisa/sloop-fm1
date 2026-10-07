@@ -33,6 +33,8 @@ static const char *const N_ROLL[] = {"1/8", "1/16", "1/32", "32T", "1/64"};   /*
 static const char *const N_EVOL[] = {"OFF", "1BAR", "2BAR", "4BAR", "8BAR"};   /* seq.c evolve */
 static const char *const N_EVBK[] = {"NEVER", "4BAR", "8BAR", "16BAR"};
 static const char *const N_AFILL[] = {"OFF", "2", "4", "8", "16", "2H", "4H", "8H", "16H"};   /* bars; H: half a bar (seq.c fill_on) */
+static const char *const N_PROG[] = {"OFF", "1564", "6415", "1645", "2511", "1454", "1637", "1451", "ANDAL",
+                                     "BLUES"};   /* seq.c PROG_DEG */
 static const char *const N_ENGNAME[] = {"ANALOG", "DIGITAL", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL", "GRAIN",
 #if FELUCCA_SLICE
                                              "SLICE",
@@ -153,6 +155,7 @@ static const param_desc_t GP[G_COUNT] = {
     [G_EVOL] = PE("EVOL", N_EVOL, 0),
     [G_EVBK] = PE("BACK", N_EVBK, 0),
     [G_AFILL] = PE("AFILL", N_AFILL, 0),
+    [G_PROG] = PE("PROG", N_PROG, 0),
 };
 
 static const param_desc_t DRUM_KIT_DESC = PE("KIT", DRUM_KIT_NAMES, 0);
@@ -319,7 +322,7 @@ static const page_t PAGES[] = {
     {"MASTER", FAM_GLO, SC_GLOBAL, GR_NONE, {G_DUST, G_DUCK, G_FILT, G_ROLL}},
     {"SYSTEM", FAM_GLO, SC_GLOBAL, GR_NONE, {G_MIDI, G_SYNC, G_ROUTE, G_INFO}},
     {"DRUMS", FAM_GLO, SC_GLOBAL, GR_NONE, {G_DRCH, G_DRLVL, G_DRREV, 0xFF}},   /* GM kit on MIDI ch 10 */
-    {"JAM", FAM_GLO, SC_GLOBAL, GR_NONE, {0xFF, G_EVOL, G_EVBK, G_AFILL}},
+    {"JAM", FAM_GLO, SC_GLOBAL, GR_NONE, {G_PROG, G_EVOL, G_EVBK, G_AFILL}},
     {"PRESETS", FAM_SAVE, SC_GLOBAL, GR_BROWSE, {0xFF, 0xFF, 0xFF, 0xFF}},   /* browser: PRESETS knob / KNOB 1 */
     {"USER", FAM_SAVE, SC_GLOBAL, GR_USER, {0xFF, 0xFF, 0xFF, 0xFF}},       /* user presets: SLOT LOAD ERASE SAVE */
     {"PROJECT", FAM_SAVE, SC_GLOBAL, GR_SLOTS, {G_SLOT, 0xFF, G_LOAD, G_SAVE}},

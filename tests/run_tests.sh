@@ -92,6 +92,8 @@ $CC -O2 -w -Ibuild/gen -Ifirmware/src -Ifirmware/hal -o "$OUT/turing_test" tests
 run "turing: TURN 0 / 100 %, the rates, scale and register, structure, kicks on the beats, recording, undo, locks" "$OUT/turing_test" "$OUT"
 $CC -O2 -w -Ibuild/gen -Ifirmware/src -Ifirmware/hal -o "$OUT/evolve_test" tests/evolve_test.c -lm
 run "evolve: EVOL / BACK on their bars, only playing, muted / recording kept, new starts, undo, the JAM page, invariants" "$OUT/evolve_test" "$OUT"
+$CC -O2 -w -Ibuild/gen -Ifirmware/src -Ifirmware/hal -o "$OUT/prog_test" tests/prog_test.c -lm
+run "prog: a chord a bar, every progression, exact in every scale, arp, drums, OFF, sections, held notes, the JAM page" "$OUT/prog_test" "$OUT"
 $CC -O2 -w -Ibuild/gen -Ifirmware/src -Ifirmware/hal -o "$OUT/dice_test" tests/dice_test.c -lm
 run "dice: every style, thousands of rolls: invariants, signatures, scale and register, turned back exactly, undo, the gesture" "$OUT/dice_test" "$OUT"
 $CC -O2 -w -Ibuild/gen -Ifirmware/src -Ifirmware/hal -o "$OUT/grids_test" tests/grids_test.c -lm

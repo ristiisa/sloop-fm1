@@ -492,8 +492,8 @@ int main(int argc, char **argv)
         ui.force = 1;
         frame();
         ppm("page-jam");
-        ck(!strcmp(cur_page()->title, "JAM") && cur_page()->id[0] == 0xFF && cur_page()->id[1] == G_EVOL && cur_page()->id[2] == G_EVBK &&
-           cur_page()->id[3] == 0xFF, "GLO tapped: GLOBAL, MASTER, SYSTEM, DRUMS, JAM (EVOL on KNOB 2, BACK on KNOB 3)");
+        ck(!strcmp(cur_page()->title, "JAM") && cur_page()->id[0] == G_PROG && cur_page()->id[1] == G_EVOL && cur_page()->id[2] == G_EVBK &&
+           cur_page()->id[3] == G_AFILL, "GLO tapped: GLOBAL, MASTER, SYSTEM, DRUMS, JAM (EVOL on KNOB 2, BACK on KNOB 3)");
         encs[panel.enc[EN_K2]] = 1;
         frame();
         encs[panel.enc[EN_K3]] = 1;

@@ -1450,6 +1450,76 @@ static void erase_now(track_t *t)             /* a key just went down */
 }
 static int erasing(const track_t *t) { return trk_index(t) == er_trk && (er_lanes || er_notes[0] || er_notes[1] || er_notes[2] || er_notes[3]); }
 
+/* ------------------------------------------------------------ prog --- */
+/* PROG (GLO > JAM): the key follows a chord progression, a chord a bar of the song (4 beats from PLAY; a
+ * song section starts it over). While the transport plays, every note of a synth track (its steps, its
+ * arp, its rolls, the keys and MIDI in) moves by the chord's degree in the track's scale (CHR: by the
+ * semitones of the major scale, of the minor one for a minor progression), up or down, whichever is
+ * nearer: a chord stays a chord of the scale. The pattern keeps its notes. A note keeps the pitch it
+ * started with to its note-off, which goes to that pitch (each source keeps what it played). Never the
+ * drum track, nor a part playing a GM kit. */
+static const char *const PROG_DEG[] = {"1564", "6415", "1645", "2511", "1454", "1637", "1451", "1765",
+                                       "111144115415"};   /* params.c N_PROG: the degree of each bar */
+#define NPROG (sizeof PROG_DEG / sizeof PROG_DEG[0])
+#define PROG_MINOR 0xE0u                          /* bit p: progression p is minor (i VI III VII, i iv v i, ANDAL) */
+static int8_t pg_seq[NTRK], pg_arp[NTRK];         /* the shift of the step / the arp step playing */
+static uint8_t pg_arpn[NTRK][8];                  /* .. the notes of the arp step as they sound */
+static uint8_t pg_src[NPART][16], pg_snd[NPART][16];   /* live notes moved: note + 1 (0 = free), played as */
+
+static uint32_t arp_deg(const track_t *t, uint32_t n, int32_t d);
+static uint32_t prog_bar(uint32_t p) { return clk_beat / 4u % str_len(PROG_DEG[p]); }   /* chord of the bar */
+/* the scale steps (CHR: semitones) the notes of t move in the bar playing, 0 = as played */
+static int32_t prog_shift(const track_t *t)
+{
+    static const uint8_t SEMI[2][7] = {{0, 2, 4, 5, 7, 9, 11}, {0, 2, 3, 5, 7, 8, 10}};
+    uint32_t p = (uint32_t)song.g[G_PROG] - 1u, mask, n = 0, i;
+    int32_t d;
+    if (p >= NPROG || !song.playing || is_drum(t) ||
+        (ENGINES[t->eng_req % NENGINES] == &ENG_SAMPLE && drum_set() >= 0 &&   /* (a GM kit: kb_map) */
+         (uint32_t)t->p[P_E0] % SMP_NSETS == (uint32_t)drum_set()))
+        return 0;
+    d = PROG_DEG[p][prog_bar(p)] - '1';
+    mask = scale_mask(t);
+    if (mask == 0xFFFu)
+        d = SEMI[(PROG_MINOR >> p) & 1u][d];
+    for (i = 0; i < 12u; i++)
+        n += (mask >> i) & 1u;
+    d %= (int32_t)n;
+    return 2 * d > (int32_t)n ? d - (int32_t)n : d;
+}
+static uint32_t prog_note(const track_t *t, uint32_t n, int32_t d) { return d ? arp_deg(t, n, d) : n; }
+/* a live note on t: what it plays as, kept for its note-off (prog_off) */
+static uint32_t prog_on(const track_t *t, uint32_t n)
+{
+    uint32_t i = trk_index(t), k, f = 16;
+    int32_t d;
+    if (i >= NPART)
+        return n;
+    for (k = 0; k < 16u; k++) {
+        if (pg_src[i][k] == n + 1u)
+            return pg_snd[i][k];                        /* (on again before its off: as it sounds) */
+        if (!pg_src[i][k])
+            f = k;
+    }
+    d = prog_shift(t);
+    if (!d || f == 16u)
+        return n;                                       /* (none free: as played, as its off will be) */
+    pg_src[i][f] = (uint8_t)(n + 1u);
+    pg_snd[i][f] = (uint8_t)arp_deg(t, n, d);
+    return pg_snd[i][f];
+}
+static uint32_t prog_off(const track_t *t, uint32_t n)
+{
+    uint32_t i = trk_index(t), k;
+    if (i < NPART)
+        for (k = 0; k < 16u; k++)
+            if (pg_src[i][k] == n + 1u) {
+                pg_src[i][k] = 0;
+                return pg_snd[i][k];
+            }
+    return n;
+}
+
 /* ------------------------------------------------------------- arp --- */
 enum { AS_NOTE, AS_BAR, AS_FREE };              /* arp SYNC (params.c N_ASYNC): when the order starts over */
 
@@ -1696,11 +1766,18 @@ static int arp_hit(const track_t *t, uint32_t pos)
     return (k >= n || (pos % n) * k % n < k) && ((ARP_RHYM[(uint32_t)t->p[P_ARHYM] & 15u] >> (pos & 15u)) & 1u);
 }
 
+static void arp_on(track_t *t, uint32_t k)       /* note k of the step on, as PROG moves it */
+{
+    uint32_t i = trk_index(t) % NTRK;
+    pg_arpn[i][k & 7u] = (uint8_t)prog_note(t, t->arp_ch[k & 7u], pg_arp[i]);
+    trk_note_on(t, pg_arpn[i][k & 7u], t->arp_vel);
+}
+
 static void arp_sound(track_t *t, uint32_t len)
 {
     uint32_t i;
     for (i = 0; i < t->arp_n; i++)
-        trk_note_on(t, t->arp_ch[i], t->arp_vel);
+        arp_on(t, i);
     t->arp_snd = 1;
     t->arp_off = len * (uint32_t)t->p[P_AGATE] / 128u;
 }
@@ -1710,7 +1787,7 @@ static void arp_release(track_t *t)
     uint32_t i;
     if (t->arp_snd)
         for (i = 0; i < t->arp_n; i++)
-            trk_note_off(t, t->arp_ch[i]);
+            trk_note_off(t, pg_arpn[trk_index(t) % NTRK][i & 7u]);
     t->arp_snd = 0;
 }
 
@@ -1803,7 +1880,7 @@ static void arp_tick(track_t *t, uint32_t adv)
                 t->arp_rat--;
                 if (t->arp_str == 2u) {             /* a strummed chord: its next note, held */
                     if (t->arp_snd)
-                        trk_note_on(t, t->arp_ch[t->arp_n++], t->arp_vel);
+                        arp_on(t, t->arp_n++);
                     else
                         t->arp_rat = 0;             /* (the gate ended first) */
                 } else {
@@ -1823,6 +1900,7 @@ static void arp_tick(track_t *t, uint32_t adv)
     arp_release(t);
     t->arp_n = 0;
     t->arp_rat = 0;
+    pg_arp[trk_index(t) % NTRK] = (int8_t)prog_shift(t);   /* PROG: the chord of the bar, for the whole step */
     seed = &t->arp_dv[pos & 15u];
     if (t->p[P_ADEJA] && rng() % 127u >= (uint32_t)t->p[P_ADEJA])
         *seed = (uint8_t)(rng() >> 24);             /* a new seed: (127 - DEJA) / 127 of the steps */
@@ -1895,8 +1973,8 @@ static void input_on(track_t *t, uint32_t note, uint32_t vel)
         return;
     }
     if (((song.rec >> trk_index(t)) & 1u) && song.playing)
-        rec_note(t, note, vel, 0, 1);
-    trk_note_on(t, note, vel);
+        rec_note(t, note, vel, 0, 1);               /* (as played: PROG moves it again as it plays back) */
+    trk_note_on(t, prog_on(t, note), vel);
 }
 
 static void input_off(track_t *t, uint32_t note)
@@ -1910,7 +1988,7 @@ static void input_off(track_t *t, uint32_t note)
         ft_note_off(note);
     rec_release(t, note);
     arp_remove(t, note);                            /* both: the note may have started in the */
-    trk_note_off(t, note);                          /* other mode (ARP switched while held) */
+    trk_note_off(t, prog_off(t, note));             /* other mode (ARP switched while held) */
 }
 
 /* a drum hit from a key, MIDI or a roll: lane, level; rat: its ratchet when recorded (rolls); rec: it
@@ -1936,6 +2014,7 @@ static const uint8_t ROLL_DEN[5] = {2, 4, 8, 12, 16};
 #define NROLL 4u
 static struct {
     uint8_t on, key, trk, note, lvl;    /* note: the synth note, or the lane */
+    uint8_t snd;                        /* the synth note sounding (PROG moves it) */
     uint32_t last;                      /* playing: the roll step last played; stopped: units since */
     uint32_t off;                       /* synth: units to its note-off, 0 = not sounding */
     uint32_t rec_abs;                   /* the step its last recorded hit went into */
@@ -1977,8 +2056,9 @@ static void roll_hit(uint32_t r)
     }
     arm_start(t);
     if (roll[r].off)
-        trk_note_off(t, roll[r].note);
-    trk_note_on(t, roll[r].note, lvl_vel(roll[r].lvl, 100));
+        trk_note_off(t, roll[r].snd);
+    roll[r].snd = (uint8_t)prog_note(t, roll[r].note, prog_shift(t));
+    trk_note_on(t, roll[r].snd, lvl_vel(roll[r].lvl, 100));
     roll[r].off = u / 2u;
     if (rec)
         rec_note(t, roll[r].note, 100, rat, 0);
@@ -2014,7 +2094,7 @@ static void roll_start(uint32_t k, track_t *t, uint32_t note, uint32_t lvl)
 static void roll_end(uint32_t r)
 {
     if (roll[r].on && roll[r].off && roll[r].trk != TRK_DRUM)
-        trk_note_off(&trk[roll[r].trk % NTRK], roll[r].note);
+        trk_note_off(&trk[roll[r].trk % NTRK], roll[r].snd);
     roll[r].on = 0;
 }
 
@@ -2026,7 +2106,7 @@ static void roll_block(uint32_t adv)
             continue;
         if (roll[r].off) {
             if (roll[r].off <= adv) {
-                trk_note_off(&trk[roll[r].trk % NTRK], roll[r].note);
+                trk_note_off(&trk[roll[r].trk % NTRK], roll[r].snd);
                 roll[r].off = 0;
             } else {
                 roll[r].off -= adv;
@@ -2433,7 +2513,8 @@ static uint32_t step_vel(const step_t *s, uint32_t i)
  * from live recording (not triggered, not released here). len: the step's length (units). */
 static void seq_step(track_t *t, const step_t *s, uint32_t slen, uint32_t skip)
 {
-    uint32_t i, j, gate = slen * (uint32_t)t->p[P_SGATE] / 128u;
+    uint32_t i, j, gate = slen * (uint32_t)t->p[P_SGATE] / 128u, ti = trk_index(t) % NTRK;
+    uint8_t nt[4];                                  /* the notes as they play (PROG) */
     uint32_t slide_in = t->seq_hold && t->seq_n;
     uint32_t next_tie = t->step[(t->seq_idx + 1u) % trk_len(t)].time == ST_TIE;
     if (s->time == ST_TIE) {
@@ -2457,15 +2538,18 @@ static void seq_step(track_t *t, const step_t *s, uint32_t slen, uint32_t skip)
     t->slide_glide = (uint8_t)slide_in;
     if (!slide_in)
         seq_release(t);
-    for (i = 0; i < s->n; i++)
+    pg_seq[ti] = (int8_t)prog_shift(t);             /* PROG: the step plays in the chord of its bar */
+    for (i = 0; i < s->n; i++) {
+        nt[i] = (uint8_t)prog_note(t, s->note[i], pg_seq[ti]);
         if (roll_has(t, s->note[i]))
             skip |= 1u << i;                        /* (a roll plays it) */
+    }
     for (i = 0; i < s->n; i++)
         if (!((skip >> i) & 1u))
-            trk_note_on(t, s->note[i], step_vel(s, i));
+            trk_note_on(t, nt[i], step_vel(s, i));
     if (slide_in)                                   /* release what is not held over */
         for (i = 0; i < t->seq_n; i++) {
-            for (j = 0; j < s->n && s->note[j] != t->seq_notes[i]; j++)
+            for (j = 0; j < s->n && nt[j] != t->seq_notes[i]; j++)
                 ;
             if (j == s->n)
                 trk_note_off(t, t->seq_notes[i]);
@@ -2473,7 +2557,7 @@ static void seq_step(track_t *t, const step_t *s, uint32_t slen, uint32_t skip)
     t->seq_n = 0;
     for (i = 0; i < s->n; i++)
         if (!((skip >> i) & 1u))
-            t->seq_notes[t->seq_n++] = s->note[i];
+            t->seq_notes[t->seq_n++] = nt[i];
     t->seq_off = gate;
     t->seq_hold = !s->rat && ((s->flags & SF_SLIDE) != 0 || next_tie);   /* next step a TIE: keep the notes to it */
 }
@@ -2519,15 +2603,15 @@ static void seq_ratchets(track_t *t, uint32_t into, uint32_t slen)
                 continue;
             h = into * hits / slen;
             if (h > t->rat_done[i] && h < hits) {
-                uint32_t j;
+                uint32_t j, n = prog_note(t, s->note[i], pg_seq[trk_index(t) % NTRK]);   /* (PROG: as its step) */
                 t->rat_done[i] = (uint8_t)h;
-                trk_note_off(t, s->note[i]);
-                trk_note_on(t, s->note[i], step_vel(s, i));
+                trk_note_off(t, n);
+                trk_note_on(t, n, step_vel(s, i));
                 t->seq_off = slen / hits * (uint32_t)t->p[P_SGATE] / 128u;
-                for (j = 0; j < t->seq_n && t->seq_notes[j] != s->note[i]; j++)
+                for (j = 0; j < t->seq_n && t->seq_notes[j] != n; j++)
                     ;
                 if (j == t->seq_n && t->seq_n < 4u)
-                    t->seq_notes[t->seq_n++] = s->note[i];   /* (its gate ends it) */
+                    t->seq_notes[t->seq_n++] = (uint8_t)n;   /* (its gate ends it) */
             }
         }
     }

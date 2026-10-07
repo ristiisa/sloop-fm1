@@ -524,7 +524,7 @@ static void t_afill(void)
     const uint8_t *L[2] = {LA, LB};
     uint32_t a, r, ok;
     char what[120];
-    ck(G_AFILL == G_COUNT - 1 && GP[G_AFILL].max == 8 && GP[G_AFILL].def == 0 && str_eq(GP[G_AFILL].names[4], "16") &&
+    ck(G_AFILL + 1 == G_PROG && GP[G_AFILL].max == 8 && GP[G_AFILL].def == 0 && str_eq(GP[G_AFILL].names[4], "16") &&
        str_eq(GP[G_AFILL].names[5], "2H"), "AFILL: OFF, 2, 4, 8, 16 bars, 2H..16H (half a bar); OFF by default");
     for (r = 0; r < 2u; r++)
         for (a = 0; a <= 8u; a++) {
