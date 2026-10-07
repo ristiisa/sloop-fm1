@@ -3,7 +3,7 @@
  * button is held the screen shows what the 16 white keys and KNOB 1..4 do now; tapped (pressed and
  * let go without touching anything) the button opens its pages as before.
  *   FX    punch-in effects (punch.c)       knobs: FILTER  DUST  DUCK
- *   EDIT  erase that sound / note (seq.c)  knobs: SHIFT  LENGTH x2 / half  TRANSPOSE   OCT- undo  OCT+ redo
+ *   EDIT  erase that sound / note (seq.c)  knobs: SHIFT  LENGTH x2 / half  TRANSPOSE  MUTATE;  OCT- undo  OCT+ redo
  *   ARP   note repeat (seq.c roll)         knobs: RATE
  *   SEQ   steps 1..16 of the page          knobs: SOUND / NOTE  DIV  SWING  LENGTH;  a step key held:
  *         (black keys 1..4: pages)                SOUND / NOTE  LEVEL  RATCHET
@@ -95,6 +95,26 @@ static void pattern_transpose(track_t *t, int32_t d)    /* every note a semitone
         for (j = 0; j < t->step[i].n && j < 4u; j++)
             t->step[i].note[j] = (uint8_t)clamp(t->step[i].note[j] + (d > 0 ? 1 : -1), 0, 127);
     fm1_irq_on();
+}
+static void pattern_mutate(track_t *t, int32_t d)      /* a pass of small changes a detent (seq.c mutate), back: undone */
+{
+    uint32_t n = 1, fwd = d > 0;
+    char b[8];
+    if (fwd || mutate_depth(t))
+        layer_undo_mark(t);
+    for (; d && n; d += fwd ? -1 : 1) {               /* (a pass at a time: the audio runs between) */
+        fm1_irq_off();
+        n = fwd ? mutate(t) : (uint32_t)mutate_back(t);
+        fm1_irq_on();
+    }
+    n = mutate_depth(t);
+    sync_reload = 1;
+    if (fwd && !n) {
+        ui_message("NOTHING TO MUTATE");
+    } else {
+        fmt_int(b, (int32_t)n);
+        ui_say("MUTATE ", b);
+    }
 }
 
 /* ------------------------------------------------------------- SEQ --- */
@@ -345,6 +365,8 @@ static void layer_knobs(uint32_t layer)
                 pattern_length(t, s);
             else if (k == 2u)
                 pattern_transpose(t, s);
+            else
+                pattern_mutate(t, s);
             break;
         case LY_ROLL:
             if (k == 0u)
@@ -533,10 +555,11 @@ static void layer_screen_draw(void)
             tl[i].top = present && !down ? (layer == LY_ERASE ? TE_RED : col) : 0;
         }
         if (layer == LY_ERASE) {
-            lab[0] = "shift", lab[1] = "length", lab[2] = is_drum(t) ? "" : "transp";
+            lab[0] = "shift", lab[1] = "length", lab[2] = is_drum(t) ? "" : "transp", lab[3] = "mutate";
             str_cpy(v[0], "<  >", 8);
             fmt_int(v[1], t->p[P_SLEN]);
             str_cpy(v[2], is_drum(t) ? "" : "-  +", 8);
+            fmt_int(v[3], (int32_t)mutate_depth(t));
             str_cpy(sub, undo.valid ? (undo.undone ? "oct+ redo" : "oct- undo") : sub, sizeof sub);
         } else {
             lab[0] = "rate";

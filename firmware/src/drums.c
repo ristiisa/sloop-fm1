@@ -51,6 +51,8 @@ static int32_t drum_set(void)
  * the hi-hats, rim and a second snare, the toms, the cymbals, the percussion. Each plays a GM note
  * (the sampled kits: their samples; the synthesised kits: drum_synth.c DS_MAP). A black key plays
  * the lane of the white key left of it (two fingers on one sound). */
+enum { LANE_KICK, LANE_KICK2, LANE_SNARE, LANE_CLAP, LANE_HAT, LANE_OPEN, LANE_PEDAL, LANE_RIM,
+       LANE_SNARE2, LANE_TOM_LO, LANE_TOM_HI, LANE_CRASH, LANE_RIDE, LANE_SHAKER, LANE_CONGA, LANE_BELL };
 static const uint8_t LANE_NOTE[DRUM_LANES] = {36, 35, 38, 39, 42, 46, 44, 37, 40, 43, 48, 49, 51, 70, 63, 56};
 static const char *const LANE_NAME[DRUM_LANES] = {
     "KICK", "KICK 2", "SNARE", "CLAP", "HAT", "OPEN HAT", "PEDAL", "RIM",

@@ -40,7 +40,7 @@ SLOOP is free and open source (GPL-3.0), based on [Felucca](https://github.com/h
 - **Hold a button, touch a key.** Every function button is a *layer*: hold it and the 16 white keys and the four knobs change job, the screen shows how. Tap it and its pages open as before.
 - **16 drum sounds on the white keys**, black keys double them. **OCT− / OCT+ held** = ghost / hard hits. Hits keep their level and a **ratchet** (x1–x4) in the pattern.
 - **Note repeat** (ARP + key), **erase as it plays** (EDIT + key), **steps under your fingers** (SEQ + key, Elektron style), **one-key chords in the song's key** (SCL), **mute / solo / tap tempo** (GLO).
-- **Undo / redo** (EDIT + OCT− / OCT+), **hold REC to clear**, and an **autosave** that brings your beat back at power-on.
+- **Undo / redo** (EDIT + OCT− / OCT+), **mutate** a pattern a click at a time and back (EDIT + KNOB 4), **hold REC to clear**, and an **autosave** that brings your beat back at power-on.
 - **MPC swing** (50–75 %), a sample-accurate clock (no drift, any tempo), tighter glides for the 808s.
 - **Master:** **DUST** (an old sampler and a record: bits, rate, crackle), **DUCK** (the kick pumps the synths), **FILT** (DJ filter: low-pass ← OFF → high-pass).
 - **Web editor:** the drum track as a 16-lane grid with levels and ratchets, the kit, the master page.
@@ -115,7 +115,7 @@ The tiles are four rows of four, keys 1–4, 5–8, 9–12, 13–16. To find the
 | Hold | Keys | KNOB 1 · 2 · 3 · 4 | Tap |
 | --- | --- | --- | --- |
 | **FX** — *punch* | a punch-in effect while the key is held | FILTER · DUST · DUCK · — | FX pages |
-| **EDIT** — *erase* | erase that sound / note from the pattern | SHIFT · LENGTH ×2 / ½ · TRANSPOSE · — | EDIT pages (drums: grid / kit) |
+| **EDIT** — *erase* | erase that sound / note from the pattern | SHIFT · LENGTH ×2 / ½ · TRANSPOSE · MUTATE | EDIT pages (drums: grid / kit) |
 | **ARP** — *roll* | note repeat on the grid | RATE · — · — · — | ARP pages |
 | **SEQ** — *steps* | steps 1–16 of the page | SOUND / NOTE · DIV · SWING · LENGTH | SEQ pages (drums: grid / kit) |
 | **SCL** — *key* | the key of the song | CHORD · SCALE · KEYS · TRANSPOSE | SCL pages |
@@ -194,7 +194,8 @@ Hold EDIT and press a key: that sound (drums) or that note (synths; with CHORD o
 - **KNOB 1 SHIFT** — every step one later / earlier (turns the groove around).
 - **KNOB 2 LENGTH** — right: ×2 (the pattern copied after itself, up to 64 steps); left: ½.
 - **KNOB 3 TRANSPOSE** — every note a semitone up / down (synth tracks).
-- **OCT− undo · OCT+ redo** (the knob turns of one hold count as one change).
+- **KNOB 4 MUTATE** — each click right varies the pattern a little (one *pass*: one or two small changes, at most 4 steps, within LENGTH); each click left takes the last pass back, exactly (*MUTATE 3*: three passes to go back; the last 16 are kept, until something else changes the pattern). Synth tracks: a note moves one degree of the track's scale (a semitone on CHR), a note gets softer or harder (ghost, soft, norm, hard), a ratchet comes or goes, and now and then a note is added on an empty step (in the scale, near the notes around it) or one is taken away; the notes stay within an octave of each other (or the span they already had), ties stay whole. Drum track: ghost hits come and go on the snares and hats the pattern uses (off the beat), a hit moves a step later / earlier, a level changes, a hat gets a ratchet; the kicks on the beats (steps 1, 5, 9, 13 of every 16) never move.
+- **OCT− undo · OCT+ redo** (the knob turns of one hold count as one change: mutate as much as you like, OCT− brings back the pattern from before the hold).
 
 ### ARP — roll (note repeat)
 

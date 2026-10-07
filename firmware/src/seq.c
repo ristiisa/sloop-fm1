@@ -237,6 +237,315 @@ static void undo_mark(const track_t *t, uint32_t sess)
 #define UNDO_REC(t) (((t)->pass << 2) | 1u)      /* a recording pass of track t */
 static uint32_t undo_erase_sess;
 
+/* ----------------------------------------------------------- mutate --- */
+/* EDIT + KNOB 4: the pattern varied a little, a pass a detent; turned back, the passes are undone
+ * exactly, the last first. Synth: a note a degree of the scale up / down, a level, a ratchet; rarely a
+ * note added near its neighbours (in the scale) or one taken away. Drums: ghost hits on the snares and
+ * hats the pattern uses, a hit a step later / earlier, a level, a ratchet on a hat; the kicks on the
+ * beats stay. A pass changes at most MUT_STEPS steps, all within LEN; a step never gets more notes
+ * (a new one: one), a TIE always follows its note, the notes keep within an octave of each other (or
+ * the span they had). */
+#define MUT_STEPS 4u                     /* steps a pass changes at most (two changes of up to 2 steps) */
+#define MUT_DEPTH 16u                    /* passes kept to turn back */
+static struct {
+    uint8_t n, trk;                      /* passes kept, their track */
+    uint32_t sum;                        /* the pattern after the last one (anything else changed it: they go) */
+    uint8_t k[MUT_DEPTH];                /* steps each pass changed */
+    uint8_t idx[MUT_DEPTH][MUT_STEPS];
+    step_t was[MUT_DEPTH][MUT_STEPS];    /* what they held before */
+} mut;
+static uint32_t mut_lanes;               /* drums: the lanes the pattern uses (ghosts go only there) */
+static uint32_t mut_off;                 /* drums: a hit moves to step (i + mut_off) % LEN */
+#define MUT_KICKS (1u << LANE_KICK | 1u << LANE_KICK2)
+#define MUT_GHOSTS (1u << LANE_SNARE | 1u << LANE_CLAP | 1u << LANE_RIM | 1u << LANE_SNARE2 | \
+                    1u << LANE_HAT | 1u << LANE_PEDAL | 1u << LANE_SHAKER)
+#define MUT_HATS (1u << LANE_HAT | 1u << LANE_PEDAL | 1u << LANE_RIDE | 1u << LANE_SHAKER)
+static const uint8_t MUT_LV[4] = {LV_GHOST, LV_SOFT, LV_NORM, LV_HARD};   /* softest .. hardest */
+
+static uint32_t pattern_sum(const track_t *t)   /* FNV-1a of the steps, the length and the track */
+{
+    const uint8_t *p = (const uint8_t *)t->step;
+    uint32_t h = 2166136261u ^ trk_index(t) ^ (uint32_t)(uint16_t)t->p[P_SLEN] << 8, i;
+    for (i = 0; i < sizeof t->step; i++)
+        h = (h ^ p[i]) * 16777619u;
+    return h;
+}
+static uint32_t mutate_depth(const track_t *t)  /* the passes there are to turn back */
+{
+    return mut.n && mut.trk == trk_index(t) && mut.sum == pattern_sum(t) ? mut.n : 0u;
+}
+static int mut_kept(uint32_t idx)                /* step idx changed in this pass already */
+{
+    uint32_t j;
+    for (j = 0; j < mut.k[mut.n]; j++)
+        if (mut.idx[mut.n][j] == idx)
+            return 1;
+    return 0;
+}
+static void mut_keep(const track_t *t, uint32_t idx)   /* step idx changes: what it held, for the way back */
+{
+    uint32_t p = mut.n;
+    if (!mut_kept(idx) && mut.k[p] < MUT_STEPS) {
+        mut.idx[p][mut.k[p]] = (uint8_t)idx;
+        mut.was[p][mut.k[p]++] = t->step[idx];
+    }
+}
+/* a random place (step idx, slot: note / lane) where ok() holds, on a step this pass has not changed;
+ * 0 = none (so a pass never changes a step twice: no change undoes another) */
+static int mut_pick(const track_t *t, int (*ok)(const track_t *, uint32_t, uint32_t), uint32_t *idx, uint32_t *slot)
+{
+    uint32_t len = trk_len(t), slots = is_drum(t) ? DRUM_LANES : 4u, n = 0, i, k, r;
+    for (i = 0; i < len; i++)
+        for (k = 0; k < slots && !mut_kept(i); k++)
+            n += (uint32_t)ok(t, i, k);
+    if (!n)
+        return 0;
+    r = rng() % n;
+    for (i = 0; i < len; i++)
+        for (k = 0; k < slots && !mut_kept(i); k++)
+            if (ok(t, i, k) && !r--) {
+                *idx = i;
+                *slot = k;
+                return 1;
+            }
+    return 0;
+}
+static uint32_t mut_level(uint32_t lv)            /* a level one softer or louder */
+{
+    uint32_t r = lv == LV_GHOST ? 0u : lv == LV_SOFT ? 1u : lv == LV_NORM ? 2u : 3u;
+    return MUT_LV[r == 0u ? 1u : r == 3u ? 2u : (rng() & 1u) ? r + 1u : r - 1u];
+}
+
+/* synth parts: the places */
+static int mut_tied(const track_t *t, uint32_t i) { return t->step[(i + 1u) % trk_len(t)].time == ST_TIE; }
+static int ms_note(const track_t *t, uint32_t i, uint32_t k) { return t->step[i].time == ST_NOTE && k < t->step[i].n && k < 4u; }
+static int ms_rat(const track_t *t, uint32_t i, uint32_t k) { return ms_note(t, i, k) && ((t->step[i].rat >> (2u * k)) & 3u); }
+static int ms_norat(const track_t *t, uint32_t i, uint32_t k)   /* (a TIE after it: no ratchet, it holds on) */
+{
+    return ms_note(t, i, k) && !((t->step[i].rat >> (2u * k)) & 3u) && !mut_tied(t, i);
+}
+static int ms_empty(const track_t *t, uint32_t i, uint32_t k) { return !k && t->step[i].time != ST_TIE && !ms_note(t, i, 0); }
+static int ms_single(const track_t *t, uint32_t i, uint32_t k) { return !k && ms_note(t, i, 0) && t->step[i].n == 1u && !mut_tied(t, i); }
+static int32_t scale_step(const track_t *t, int32_t n, int32_t d)   /* the next note of the scale up (d > 0) / down */
+{
+    uint32_t mask = scale_mask(t), guard = 12;
+    do
+        n += d;
+    while (--guard && !((mask >> (uint32_t)((n - t->p[P_ROOT] + 120) % 12)) & 1u));
+    return n;
+}
+/* where a note may go: within an octave of the others, or the span they have */
+static void mut_span(const track_t *t, int32_t *lo, int32_t *hi)
+{
+    uint32_t len = trk_len(t), i, k;
+    int32_t a = 127, b = 0;
+    for (i = 0; i < len; i++)
+        for (k = 0; ms_note(t, i, k); k++) {
+            a = t->step[i].note[k] < a ? t->step[i].note[k] : a;
+            b = t->step[i].note[k] > b ? t->step[i].note[k] : b;
+        }
+    *lo = b - a < 12 ? b - 12 : a;
+    *hi = b - a < 12 ? a + 12 : b;
+    *lo = clamp(*lo, 0, 127);
+    *hi = clamp(*hi, 0, 127);
+}
+static int mut_fits(const step_t *s, int32_t n, int32_t lo, int32_t hi)   /* note n may go into s */
+{
+    uint32_t k;
+    if (n < lo || n > hi)
+        return 0;
+    for (k = 0; k < s->n && k < 4u; k++)
+        if (s->note[k] == n)
+            return 0;
+    return 1;
+}
+static int mut_synth(track_t *t)                  /* one change of a synth part: 1, 0 = none to make */
+{
+    uint32_t i, k, sh, len = trk_len(t), c = rng() % 16u;
+    int32_t lo, hi, n, d;
+    step_t *s;
+    if (c < 12u) {                                /* a note: its pitch (9 in 16) or its level */
+        if (!mut_pick(t, ms_note, &i, &k))
+            return 0;
+        s = &t->step[i];
+        sh = 2u * k;
+        if (c >= 9u) {                            /* a level */
+            mut_keep(t, i);
+            s->lvl = (uint8_t)((s->lvl & ~(3u << sh)) | mut_level((s->lvl >> sh) & 3u) << sh);
+            return 1;
+        }
+        mut_span(t, &lo, &hi);                    /* a note a degree up / down */
+        d = (rng() & 1u) ? 1 : -1;
+        if (!mut_fits(s, n = scale_step(t, s->note[k], d), lo, hi) && !mut_fits(s, n = scale_step(t, s->note[k], -d), lo, hi))
+            return 0;
+        mut_keep(t, i);
+        s->note[k] = (uint8_t)n;
+        return 1;
+    }
+    if (c < 14u) {                                /* a ratchet (x2) added, or one taken away */
+        int add = (rng() & 1u) != 0;
+        if (!mut_pick(t, add ? ms_norat : ms_rat, &i, &k) && !mut_pick(t, (add = !add) ? ms_norat : ms_rat, &i, &k))
+            return 0;
+        s = &t->step[i];
+        sh = 2u * k;
+        mut_keep(t, i);
+        s->rat = (uint8_t)((s->rat & ~(3u << sh)) | (uint32_t)add << sh);
+        return 1;
+    }
+    if (c < 15u) {                                /* a note on an empty step, near the notes before / after */
+        const step_t *a = 0, *b = 0;
+        uint32_t j;
+        if (!mut_pick(t, ms_empty, &i, &k))
+            return 0;
+        for (j = 1; j < len && !a; j++)
+            if (ms_note(t, (i + len - j) % len, 0))
+                a = &t->step[(i + len - j) % len];
+        for (j = 1; j < len && !b; j++)
+            if (ms_note(t, (i + j) % len, 0))
+                b = &t->step[(i + j) % len];
+        if (!a || !b)
+            return 0;
+        if (rng() & 1u)
+            a = b;
+        n = a->note[rng() % (a->n < 4u ? a->n : 4u)];
+        d = (int32_t)(rng() % 3u) - 1;
+        mut_span(t, &lo, &hi);
+        if ((n = scale_step(t, d ? n : n + 1, d ? d : -1)) < lo || n > hi)   /* (d = 0: n, into the scale) */
+            return 0;
+        s = &t->step[i];
+        mut_keep(t, i);
+        memset(s, 0, sizeof *s);
+        s->note[0] = (uint8_t)n;
+        s->n = 1;
+        s->time = ST_NOTE;
+        s->vel = a->vel;
+        s->lvl = (uint8_t)((rng() & 1u) ? LV_SOFT : LV_NORM);
+        return 1;
+    }
+    for (i = 0, n = 0; i < len; i++)              /* a single note taken away (not one of the last two) */
+        n += ms_note(t, i, 0);
+    if (n < 3 || !mut_pick(t, ms_single, &i, &k))
+        return 0;
+    mut_keep(t, i);
+    memset(&t->step[i], 0, sizeof t->step[i]);
+    t->step[i].time = ST_REST;
+    return 1;
+}
+
+/* the drum track: the places */
+static int md_hit(const track_t *t, uint32_t i, uint32_t l) { return dstep_has(&t->dstep[i], l); }
+static int md_ghost_add(const track_t *t, uint32_t i, uint32_t l)   /* off the beat, a snare / hat the pattern uses */
+{
+    return (((MUT_GHOSTS & mut_lanes) >> l) & 1u) && i % 4u && !md_hit(t, i, l);
+}
+static int md_ghost(const track_t *t, uint32_t i, uint32_t l)
+{
+    return ((MUT_GHOSTS >> l) & 1u) && md_hit(t, i, l) && dstep_lvl(&t->dstep[i], l) == LV_GHOST;
+}
+static int md_move(const track_t *t, uint32_t i, uint32_t l)        /* off the beat, to a step without it */
+{
+    uint32_t j = (i + mut_off) % trk_len(t);
+    return i % 4u && md_hit(t, i, l) && !md_hit(t, j, l) && !mut_kept(j);
+}
+static int md_level(const track_t *t, uint32_t i, uint32_t l) { return !((MUT_KICKS >> l) & 1u) && md_hit(t, i, l); }
+static int md_rat(const track_t *t, uint32_t i, uint32_t l) { return md_hit(t, i, l) && dstep_rat(&t->dstep[i], l); }
+static int md_hat(const track_t *t, uint32_t i, uint32_t l)
+{
+    return ((MUT_HATS >> l) & 1u) && md_hit(t, i, l) && !dstep_rat(&t->dstep[i], l);
+}
+static int mut_drum(track_t *t)                   /* one change of the drum track: 1, 0 = none to make */
+{
+    uint32_t i, l, len = trk_len(t), c = rng() % 16u;
+    dstep_t *s;
+    if (c < 4u) {                                 /* a ghost hit */
+        if (!mut_pick(t, md_ghost_add, &i, &l))
+            return 0;
+        mut_keep(t, i);
+        dstep_set(&t->dstep[i], l, LV_GHOST, 0);
+        return 1;
+    }
+    if (c < 8u) {                                 /* a ghost hit taken away */
+        if (!mut_pick(t, md_ghost, &i, &l))
+            return 0;
+        mut_keep(t, i);
+        dstep_clr(&t->dstep[i], l);
+        return 1;
+    }
+    if (c < 11u) {                                /* a hit a step later / earlier */
+        uint32_t j;
+        mut_off = (rng() & 1u) ? 1u : len - 1u;
+        if (!mut_pick(t, md_move, &i, &l))
+            return 0;
+        j = (i + mut_off) % len;
+        s = &t->dstep[i];
+        mut_keep(t, i);
+        mut_keep(t, j);
+        dstep_set(&t->dstep[j], l, dstep_lvl(s, l), dstep_rat(s, l));
+        dstep_clr(s, l);
+        return 1;
+    }
+    if (c < 14u) {                                /* a level (not the kicks) */
+        if (!mut_pick(t, md_level, &i, &l))
+            return 0;
+        s = &t->dstep[i];
+        mut_keep(t, i);
+        dstep_set(s, l, mut_level(dstep_lvl(s, l)), dstep_rat(s, l));
+        return 1;
+    }
+    {                                             /* a ratchet (x2) on a hat, or one taken away */
+        int add = (rng() & 1u) != 0;
+        if (!mut_pick(t, add ? md_hat : md_rat, &i, &l) && !mut_pick(t, (add = !add) ? md_hat : md_rat, &i, &l))
+            return 0;
+        s = &t->dstep[i];
+        mut_keep(t, i);
+        dstep_set(s, l, dstep_lvl(s, l), (uint32_t)add);
+        return 1;
+    }
+}
+
+/* a pass on track t (one or two changes): the passes there are to turn back, 0 = nothing to change */
+static uint32_t mutate(track_t *t)
+{
+    uint32_t p, i, tries, ops = 1u + ((rng() & 3u) == 0u);
+    if (!mutate_depth(t))
+        mut.n = 0;
+    if (mut.n == MUT_DEPTH) {                     /* full: the oldest goes */
+        for (p = 1; p < MUT_DEPTH; p++) {
+            mut.k[p - 1u] = mut.k[p];
+            memcpy(mut.idx[p - 1u], mut.idx[p], sizeof mut.idx[p]);
+            memcpy(mut.was[p - 1u], mut.was[p], sizeof mut.was[p]);
+        }
+        mut.n--;
+    }
+    mut.trk = (uint8_t)trk_index(t);
+    p = mut.n;
+    mut.k[p] = 0;
+    mut_lanes = 0;
+    if (is_drum(t))
+        for (i = 0; i < trk_len(t); i++)
+            mut_lanes |= dstep_mask(&t->dstep[i]);
+    for (tries = 0; ops && tries < 16u && mut.k[p] + 2u <= MUT_STEPS; tries++)
+        if (is_drum(t) ? mut_drum(t) : mut_synth(t))
+            ops--;
+    if (!mut.k[p])
+        return 0;
+    mut.sum = pattern_sum(t);
+    return ++mut.n;
+}
+static int mutate_back(track_t *t)                /* the last pass undone: 1, 0 = none (or the pattern changed since) */
+{
+    uint32_t p, j;
+    if (!mutate_depth(t)) {
+        mut.n = 0;
+        return 0;
+    }
+    p = --mut.n;
+    for (j = 0; j < mut.k[p]; j++)
+        t->step[mut.idx[p][j]] = mut.was[p][j];
+    mut.sum = pattern_sum(t);
+    return 1;
+}
+
 /* ------------------------------------------------------- recording --- */
 /* key to ear, in samples: the key's debounce (~3 ms) and the audio out buffer (HALF_FRAMES to
  * 2 x HALF_FRAMES, ~9 ms on average). A note played in time with what the player hears reaches
