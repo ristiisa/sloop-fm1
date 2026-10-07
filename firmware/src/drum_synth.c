@@ -13,8 +13,10 @@
  *          12 dB/oct high-pass (HPF) on the noise before it
  *   out    drive (tanh), the kit's crush (bit depth, sample-and-hold), the sound's level
  * The envelopes, the pitch and the filter run at the control rate (CTL samples) and are ramped
- * per sample. Cost: ~50-60 integer ops per voice and sample (METAL: +6 adds). */
-enum { DW_NONE, DW_SINE, DW_TRI, DW_SQUARE, DW_FM, DW_BELL };
+ * per sample. Cost: ~50-60 integer ops per voice and sample (METAL: +6 adds).
+ * A sound can instead be one of the Peaks models (wave DW_PK_*, drum_peaks.c): the 808-style bass
+ * drum, snare drum and hi-hat, and the sine FM drum; their fields are their own (drum_peaks.c). */
+enum { DW_NONE, DW_SINE, DW_TRI, DW_SQUARE, DW_FM, DW_BELL, DW_PK_BD, DW_PK_SD, DW_PK_HH, DW_PK_FM };
 enum { DN_NONE, DN_WHITE, DN_METAL, DN_CYM, DN_CHIP, DN_CLAP = 0x10 };
 enum { DF_OFF, DF_LP, DF_BP, DF_HP, DF_ALL = 4 };   /* flt: mode | DF_ALL (the tone too) | res << 3 */
 typedef struct {
@@ -60,11 +62,26 @@ static uint32_t ds_lane(uint32_t note, int32_t *semi)
     return DS_MAP[note - 35u].lane;
 }
 
+typedef struct { int32_t lp, bp, f, damp; } pksvf_t;   /* drum_peaks.c: a Chamberlin SVF, Q15 */
+typedef struct {
+    pksvf_t sv[2];               /* BD: the resonator; SD: the two bodies; HH: the noise band-pass, the colour high-pass */
+    union {
+        struct { uint32_t ph[6], inc[6]; } hh;              /* HH: the six squares */
+        struct { pksvf_t sn; int32_t e1, e2, e3, p1, p2, lpk, lp; } x;   /* BD / SD: see pk_on */
+        struct { uint32_t eam, efm, eaux, kfm; int32_t fma, aux, noise, od, prev; } fm;
+    };
+} pkv_t;
+
 typedef struct {
     const dsnd_t *d;
     uint32_t ph, inc, inc_to;    /* tone phase; increment now and at the end of the block */
-    uint32_t ph2, ph3, mph[6];   /* BELL / FM second oscillator, the second partial, the metal squares */
-    uint32_t minc[6];
+    union {
+        struct {
+            uint32_t ph2, ph3, mph[6];   /* BELL / FM second oscillator, the second partial, the metal squares */
+            uint32_t minc[6];
+        };
+        pkv_t pk;                /* the Peaks models */
+    };
     int32_t pe;                  /* pitch envelope Q15 (32767 = BEND semitones) */
     int32_t amp, amp_to;         /* tone envelope Q15, now and at the end of the block */
     int32_t nz, nz_to;           /* noise envelope Q15 */
@@ -119,6 +136,8 @@ static void ds_filter(dsv_t *s)
 /* the 808 cymbal oscillators (205.3 304.4 369.6 522.7 540 800 Hz) as 1/16 semitones above the first */
 static const int16_t DS_METAL[6] = {0, 109, 163, 259, 268, 377};
 
+#include "drum_peaks.c"          /* pk_on, pk_render: the Peaks models */
+
 static void ds_on(dsv_t *s, const dkit_t *kit, uint32_t note, uint32_t vel)
 {
     int32_t semi;
@@ -136,6 +155,10 @@ static void ds_on(dsv_t *s, const dkit_t *kit, uint32_t note, uint32_t vel)
         s->lg = (int32_t)(q >= 0 ? g << q : g >> -q);
     }
     s->base16 = ((int32_t)d->pitch + semi) * 16 + d->fine;
+    if (d->wave >= DW_PK_BD) {
+        pk_on(s, note);
+        return;
+    }
     s->pe = d->bend || d->fenv ? 32767 : 0;
     s->kpe = ds_k32(d->btime);
     s->inc = s->inc_to = ds_inc(s->base16 + ((s->pe * (int32_t)d->bend * 16) >> 15));
@@ -212,6 +235,8 @@ static int ds_render(dsv_t *s, int32_t *out, uint32_t n)
     int32_t a = s->amp, z = s->nz, c = s->ck, inc = (int32_t)s->inc;
     int32_t drive = 16 + d->drive, bits = s->crush & 15, hold = (s->crush >> 4) + 1;
     int32_t t2l = (int32_t)d->t2lev * 258;
+    if (wave >= DW_PK_BD)
+        return pk_render(s, out, n);
     for (i = 0; i < n; i++) {
         int32_t tone = 0, nz = 0, x;
         if (wave) {

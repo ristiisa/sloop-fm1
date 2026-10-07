@@ -4,6 +4,8 @@
 # SLOOP 2.0 (reviewed): analog +9 % (drive crossfade, phase reset), lofi +4 % (input clamp), slicer on
 # the sample-accurate clock (its divides are per step / per block, not per sample: the per-sample
 # loop has none), the mix out of the ISR into its own function (fm1_alnk0_irq calls it).
+# SLOOP 2.5: pk_render, the Peaks drum models (drum_peaks.c, out of line from drums_mix): its four
+# per-sample loops (BD 81, HH 97, SD 151, FM 74 instructions).
 analog_render 638
 digital_render 333
 phase_render 79
@@ -18,4 +20,5 @@ grain_render 1734
 grain_block 138
 slicer_track 825
 drums_mix 6153
+pk_render 403
 fm1_alnk0_irq 174

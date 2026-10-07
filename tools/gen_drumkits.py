@@ -5,7 +5,8 @@
 Each kit has 16 sounds (lanes), one per white key of the drum track:
 KICK SNARE CLAP CHH OHH TOMLO TOMHI CRASH RIDE SHAKER CONGA RIM COWBELL CLAVE KICK2 SNARE2.
 A sound is written in musical units (Hz, ms, octaves, dB) and converted to the table indices
-the firmware uses (MIDI note + 1/16, DECAY_K and CUTOFF_HZ indices). The level of every sound
+the firmware uses (MIDI note + 1/16, DECAY_K and CUTOFF_HZ indices). A sound can also be one of the Peaks
+drum models (BD, SD, HH, FM: firmware/src/drum_peaks.c), written with Peaks' own knobs. The level of every sound
 (LEVELS, tools/drumkit_levels.json) is measured, not guessed: tests/drum_level.c renders each
 sound, and every kit comes out as loud as the others, each lane at its place in the mix.
 
@@ -60,7 +61,66 @@ def S(wave=None, hz=100, bend=0, bt=20, hold=0, decay=100, tlev=110, t2=0.0, t2l
                 fenv=fenv, hpf=hpf, chip=chip, drive=drive, level=level)
 
 
+# ---- the Peaks models (firmware/src/drum_peaks.c): Peaks' own knobs, 0..1 ----------------------
+PKW = {"pk_bd": 6, "pk_sd": 7, "pk_hh": 8, "pk_fm": 9}
+
+
+def knob(x):
+    return max(0, min(255, int(round(x * 255))))
+
+
+def env_ms(k16):                   # Peaks lut_env_increments (48 kHz): an envelope's length, ms
+    g, n = 0.175, 256
+    lo, hi = (2 ** 32 / (8.0 * 48000)) ** -g, (2 ** 32 / (0.0005 * 48000)) ** -g
+    inc = [int((hi + (lo - hi) * i / n) ** (-1 / g)) for i in (k16 >> 8, (k16 >> 8) + 1)]
+    inc = inc[0] - ((inc[0] - inc[1]) * (k16 & 255) >> 8)
+    return 2 ** 32 / inc / 48000 * 1000
+
+
+def BD(hz=49, punch=1.0, tone=0.5, decay=0.5, level=0.0):
+    """the 808-style bass drum: a resonator at hz (17 semitones up for 4 ms) struck by pulses"""
+    c = int(tone * 65535) ** 2 >> 16
+    a = (512 + (c >> 2) * 3) / 32768                # TONE: the low-pass after it, at 48 kHz ...
+    a = 1 - math.copysign(abs(1 - a) ** (48000 / 44100), 1 - a)   # ... and the same at 44.1 kHz
+    return dict(wave="pk_bd", hz=hz, bend=knob(punch), decay=knob(decay), fcut=min(255, int(round(a * 128))),
+                level=level)
+
+
+def SD(hz=165, tone=0.0, snappy=0.5, decay=0.5, level=0.0):
+    """the 808-style snare drum: two bodies (hz, an octave up) and band-passed noise"""
+    return dict(wave="pk_sd", hz=hz, fcut=knob(tone), nlev=knob(snappy), decay=knob(decay), level=level)
+
+
+def HH(hz=540, decay=197, bp=12000, hp=12000, res=24000 / 32768, level=0.0):
+    """the 808-style hi-hat: six squares from hz, a band-pass, the VCA (decay ms to -60 dB), a high-pass"""
+    return dict(wave="pk_hh", hz=hz, decay=dec(decay), fcut=note(bp), hpf=note(hp), t2lev=knob(res * 256 / 255),
+                level=level)
+
+
+def FM(hz=55, fm=0.0, decay=0.5, noise=0.5, level=0.0):
+    """the sine FM drum: a pitch sweep FM (octaves) over the FM envelope, the AM envelope (both from
+    DECAY), NOISE above 0.5, overdrive below"""
+    d16 = int(decay * 65535)
+    f16 = max(0.0, min(1.0, (69 + 12 * math.log2(hz / 440.0) - 24) / 72)) * 65536
+    aux = 1024 if f16 <= 16384 else 2048 - (int(f16) >> 4) if f16 <= 32768 else 0
+    return dict(wave="pk_fm", hz=hz, bend=knob(fm), decay=dec(1.725 * env_ms(16384 + (d16 >> 1))),
+                btime=dec(1.725 * env_ms(8192 + (d16 >> 2))), nlev=knob(noise), t2=aux >> 3, level=level)
+
+
+def pk_enc(s, trim):
+    p, f = note16(s["hz"])
+    v = [0] * 22
+    v[0], v[2], v[3] = PKW[s["wave"]], p, f
+    for i, k in ((4, "bend"), (5, "btime"), (7, "decay"), (9, "t2"), (10, "t2lev"), (12, "nlev"), (16, "fcut"),
+                 (18, "hpf")):
+        v[i] = s.get(k, 0)
+    v[21] = max(0, min(255, int(round(128 + 4 * (s["level"] + trim)))))
+    return v
+
+
 def enc(s, trim=0.0):
+    if s["wave"] in PKW:
+        return pk_enc(s, trim)
     p, f = note16(s["hz"])
     flt, fcut = 0, 127
     if s["filt"]:
@@ -196,6 +256,43 @@ KFM = dict(
     RIM=S("fm", 1500, 4, 5, 0, 25, 96, click=30),
     COWBELL=S("fm", 600, 0, 5, 4, 200, 96),
     CLAVE=S("fm", 2300, 0, 5, 0, 40, 100),
+)
+
+KPEAKS = dict(                                                  # the 808 models: bridged-T kick, toms, conga, clave
+    KICK=BD(52, .4, .2, .58),
+    KICK2=BD(44, .9, .4, .62),                                  # the long boom
+    SNARE=SD(180, .75, .55, .45),
+    SNARE2=SD(240, .9, .8, .3),
+    CLAP=K808["CLAP"],
+    CHH=HH(540, 160),
+    OHH=HH(540, 700),
+    TOMLO=BD(98, .3, .6, .45),
+    TOMHI=BD(147, .3, .55, .5),
+    CRASH=HH(380, 1800, 9000, 5000),
+    RIDE=HH(700, 1300, 7000, 4500, .85),
+    SHAKER=K808["SHAKER"],
+    CONGA=BD(310, .15, .6, .55),
+    RIM=BD(1700, 0, 1.0, .35),
+    COWBELL=K808["COWBELL"],
+    CLAVE=BD(2500, 0, .75, .65),
+)
+KPEAKSFM = dict(                                                # the sine FM drum: kicks, snares, toms, percussion
+    KICK=FM(50, .25, .65),
+    KICK2=FM(45, .2, .7, .25),                                  # overdriven
+    SNARE=FM(170, .15, .4, 1.0),
+    SNARE2=FM(200, .7, .25, 0.0),                               # the zap
+    CLAP=K808["CLAP"],
+    CHH=HH(600, 110),
+    OHH=HH(600, 600),
+    TOMLO=FM(100, .3, .45),
+    TOMHI=FM(150, .3, .4),
+    CRASH=HH(380, 1800, 9000, 5000),
+    RIDE=HH(700, 1300, 7000, 4500, .85),
+    SHAKER=K808["SHAKER"],
+    CONGA=FM(330, .15, .35),
+    RIM=FM(1500, .5, 0.0, .8),
+    COWBELL=FM(560, .1, .25, .2),
+    CLAVE=FM(2400, .05, 0.0),
 )
 
 KITS = [
@@ -364,6 +461,9 @@ KITS = [
         RIDE=S(None, 320, src="cym", nlev=90, ndec=2400, filt=("bp", 6500, .35), hpf=3500, click=16),
         TOMLO=S("sine", 110, 3, 30, 6, 400, 106, 1.5, 40, 20, "white", 16, 0, 40, ("lp", 2000, .1)),
         TOMHI=S("sine", 160, 3, 30, 6, 340, 104, 1.5, 40, 20, "white", 16, 0, 40, ("lp", 2500, .1)))),
+    # -- the Peaks models (appended: saved projects keep their kit numbers)
+    ("PEAKS", "MODULAR", 0, KPEAKS),
+    ("PEAKS FM", "MODULAR FM", 0, KPEAKSFM),
 ]
 
 
