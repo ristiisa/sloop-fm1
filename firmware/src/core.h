@@ -202,6 +202,7 @@ typedef struct track {
     uint8_t arp_snd;             /* they sound (until the gate) */
     uint8_t arp_vel;             /* their velocity (accents) */
     uint8_t arp_rat;             /* ratchet hits still to come in this step */
+    uint8_t arp_str, arp_m;      /* STRUM: 0 off, 1 a run, 2 a strummed chord; the notes of the step in arp_ch */
     uint8_t arp_new;             /* a chord just started: its first note now */
     uint8_t arp_dv[16];          /* DEJA: a random seed per grid place (the loop) */
     uint8_t arp_ds, arp_dk;      /* DEJA: the seed of this step, the draws taken from it */

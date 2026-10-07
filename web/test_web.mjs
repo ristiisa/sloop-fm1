@@ -498,6 +498,9 @@ async function editorV5() {
     && /\[G_DUST\] = PD\("DUST", F_PCT, 0, 127, 0\)/.test(pc) && /\[G_FILT\] = PD\("FILT", F_FILT, -64, 63, 0\)/.test(pc)
     && /\[G_ROLL\] = PE\("ROLL", N_ROLL, 1\)/.test(pc) && /\[G_NEWPRJ\] = PE\("NEW", N_GO, 0\)/.test(pc),
     "v5: CHORD, DUST, DUCK, FILT, ROLL, NEW (mock == params.c)");
+  const rat = E.parse[C.DESC](await rq(E.req.desc(0, 53)));
+  ok(rat.label === "RAT" && rat.names.join() === enumNames("N_ARAT").join() && rat.max === 9 && /\[P_ARAT\] = PE\("RAT", N_ARAT, 0\)/.test(pc),
+    "2.5: arp RAT X1..X4, UP2..DN4 (mock == params.c)");
   /* the value formats (params.c fmt_value) */
   const fv = (fmt, v, max = 127, min = 0) => E.fmtValue({ fmt, min, max, names: [] }, v).join("");
   ok(fv(E.F.SWING, 0, 100) === "50%" && fv(E.F.SWING, 50, 100) === "63%" && fv(E.F.SWING, 100, 100) === "75%"

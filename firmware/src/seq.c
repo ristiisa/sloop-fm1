@@ -1253,6 +1253,8 @@ static void arp_remove(track_t *t, uint32_t note)
 /* arp MODE (params.c N_AMODE) */
 enum { A_OFF, A_UP, A_DN, A_UPDN, A_RND, A_ORD, A_UPDN2, A_CONV, A_DIVG, A_THMB, A_PNKY, A_DRNK, A_SHUF, A_OCTI,
        A_CHRD };
+/* arp RAT (params.c N_ARAT): X1..X4 a ratchet, UP2..DN4 STRUM (arp_strum) */
+enum { AR_X1, AR_X2, AR_X3, AR_X4, AR_UP2, AR_UP3, AR_UP4, AR_DN2, AR_DN3, AR_DN4 };
 
 /* the held notes (sorted, or as played: ORD), one octave after the other over OCT octaves; OCTI: each
  * note in its octaves before the next (at least two) */
@@ -1436,11 +1438,43 @@ static void arp_release(track_t *t)
     t->arp_snd = 0;
 }
 
+/* RAT UP2..DN4 (STRUM), n = 2..4. One note: a run of n hits as RAT Xn, the step's note then the next
+ * ones of the list (DN: the ones before), wrapping; the order goes on from the step's note as at X1.
+ * CHRD: the notes start one after another, low to high (DN: high to low), the last one at (n - 1) / n
+ * of the gate; each sounds to the gate's end */
+static void arp_strum(track_t *t, uint32_t rat, uint32_t slen)
+{
+    uint32_t n = 2u + (rat - AR_UP2) % 3u, dn = rat >= AR_DN2, m = t->arp_n, i, j, list[64], len;
+    if (t->p[P_AMODE] == A_CHRD) {
+        for (i = 1; i < m; i++)
+            for (j = i; j > 0 && (dn ? t->arp_ch[j - 1] < t->arp_ch[j] : t->arp_ch[j - 1] > t->arp_ch[j]); j--) {
+                uint8_t x = t->arp_ch[j];
+                t->arp_ch[j] = t->arp_ch[j - 1];
+                t->arp_ch[j - 1] = x;
+            }
+        t->arp_str = 2;
+        t->arp_sl = m > 1u ? slen * (uint32_t)t->p[P_AGATE] / 128u * (n - 1u) / (n * (m - 1u)) : 0u;
+        t->arp_n = 1;
+        arp_sound(t, slen);
+    } else {
+        len = arp_list(t, list);
+        j = t->arp_walk;
+        for (i = 1, m = n; i < n; i++)
+            t->arp_ch[i] = (uint8_t)list[(dn ? j + len - i % len : j + i) % len];
+        t->arp_str = 1;
+        t->arp_sl = slen / n;
+        arp_sound(t, t->arp_sl);
+    }
+    t->arp_m = (uint8_t)m;
+    t->arp_rat = (uint8_t)(m - 1u);
+    t->arp_sub = t->arp_sl;
+}
+
 /* the arp, once per block: on the transport's grid of RATE (with its SWING) while playing, from the
  * first key while stopped. A new chord starts at once unless the grid is just ahead. Each step: HITS
- * of STEPS, RHYM and PROB decide if it plays, ACC its velocity, RAT how many times; DEJA: its random
- * choices from the seed of its grid place, which changes by chance. While recording, each step it
- * plays is recorded (what you hear) */
+ * of STEPS, RHYM and PROB decide if it plays, ACC its velocity, RAT how many times (or a run, a
+ * strum); DEJA: its random choices from the seed of its grid place, which changes by chance. While
+ * recording, each step it plays is recorded (what you hear; a run or a strum: its notes as a chord) */
 static void arp_tick(track_t *t, uint32_t adv)
 {
     uint32_t den = DIV_DEN[(uint32_t)t->p[P_ARATE] % 6u], u = BEAT_U / den, into, slen, abs = 0, fire = 0, pos, rat, r, i;
@@ -1490,8 +1524,17 @@ static void arp_tick(track_t *t, uint32_t adv)
             } else {
                 t->arp_sub = t->arp_sub + t->arp_sl > adv ? t->arp_sub + t->arp_sl - adv : 1u;
                 t->arp_rat--;
-                arp_release(t);
-                arp_sound(t, t->arp_sl);
+                if (t->arp_str == 2u) {             /* a strummed chord: its next note, held */
+                    if (t->arp_snd)
+                        trk_note_on(t, t->arp_ch[t->arp_n++], t->arp_vel);
+                    else
+                        t->arp_rat = 0;             /* (the gate ended first) */
+                } else {
+                    arp_release(t);
+                    if (t->arp_str)
+                        t->arp_ch[0] = t->arp_ch[t->arp_m - 1u - t->arp_rat];   /* a run: its next note */
+                    arp_sound(t, t->arp_sl);
+                }
             }
         }
         return;
@@ -1521,14 +1564,20 @@ static void arp_tick(track_t *t, uint32_t adv)
         t->arp_ch[0] = (uint8_t)arp_next(t);
         t->arp_n = 1;
     }
-    rat = (uint32_t)t->p[P_ARAT] & 3u;
+    rat = (uint32_t)t->p[P_ARAT];
     t->arp_vel = (uint8_t)arp_vel(t, pos);
-    t->arp_rat = (uint8_t)rat;
-    t->arp_sl = slen / (rat + 1u);
-    t->arp_sub = t->arp_sl;
-    arp_sound(t, t->arp_sl);
+    t->arp_str = 0;
+    if (rat >= AR_UP2) {
+        arp_strum(t, rat, slen);
+        rat = 0;                                    /* recorded: the step's notes as a chord, x1 */
+    } else {
+        t->arp_rat = (uint8_t)rat;
+        t->arp_sl = slen / (rat + 1u);
+        t->arp_sub = t->arp_sl;
+        arp_sound(t, t->arp_sl);
+    }
     if (((song.rec >> trk_index(t)) & 1u) && song.playing)
-        for (i = 0; i < t->arp_n && i < 4u; i++)
+        for (i = 0; i < (t->arp_str ? t->arp_m : t->arp_n) && i < 4u; i++)
             rec_note(t, t->arp_ch[i], t->arp_vel, rat, 0);
 }
 

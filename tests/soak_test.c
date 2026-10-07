@@ -71,7 +71,7 @@ int main(int argc, char **argv)
             case 14: { track_t *t = &trk[rnd(NPART)];                           /* arp: mode and rhythm */
                        t->p[P_AMODE] = (int16_t)rnd(15); t->p[P_AOCT] = (int16_t)(1 + rnd(4));
                        t->p[P_AACC] = (int16_t)rnd(6); t->p[P_AHITS] = (int16_t)(1 + rnd(16));
-                       t->p[P_ASTEPS] = (int16_t)(1 + rnd(16)); t->p[P_ARAT] = (int16_t)rnd(4);
+                       t->p[P_ASTEPS] = (int16_t)(1 + rnd(16)); t->p[P_ARAT] = (int16_t)rnd(10);
                        t->p[P_AROT] = (int16_t)rnd(16); t->p[P_ASYNC] = (int16_t)rnd(3);
                        t->p[P_ARHYM] = (int16_t)rnd(16); t->p[P_ADEJA] = (int16_t)rnd(128); break; }
             default: {                                                             /* keys: press / release */

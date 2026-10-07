@@ -64,6 +64,74 @@ static uint32_t place(const uint8_t *l, uint32_t n, uint32_t note)
         ;
     return i;
 }
+/* the voices gated (sounding until a note-off); vel_of: the velocity of the one playing note, 0 = none */
+static uint32_t gated(const track_t *t)
+{
+    uint32_t i, n = 0;
+    for (i = 0; i < NVOICE; i++)
+        n += t->v[i].gate != 0;
+    return n;
+}
+static uint32_t vel_of(const track_t *t, uint32_t note)
+{
+    uint32_t i;
+    for (i = 0; i < NVOICE; i++)
+        if (t->v[i].gate && t->v[i].note == note)
+            return t->v[i].vel;
+    return 0;
+}
+/* every gated voice is a note of the arp step it still holds (nothing left hanging) */
+static int tracked(const track_t *t)
+{
+    uint32_t i;
+    for (i = 0; i < NVOICE; i++)
+        if (t->v[i].gate && (!t->arp_snd || place(t->arp_ch, t->arp_n, t->v[i].note) >= t->arp_n))
+            return 0;
+    return 1;
+}
+/* the arp step just started (stopped) played to its end in 180 ticks, the 180th starting the next one:
+ * its notes as they start (h_at: the tick, 0 = the step's own note), their velocity as sounding, the
+ * voices gated then; h_gate: the voices gated after each tick; h_act: the voices used by the step */
+static uint32_t h_n, h_at[8], h_act;
+static uint8_t h_note[8], h_vel[8], h_nv[8], h_gate[180];
+static void play_step(track_t *t)
+{
+    uint32_t d = unit(t) / 180u, x, r = t->arp_rat, i;
+    h_n = 0;
+    if (t->arp_n) {
+        h_at[0] = 0;
+        h_note[0] = t->arp_ch[0];
+        h_vel[0] = (uint8_t)vel_of(t, t->arp_ch[0]);
+        h_nv[h_n++] = (uint8_t)gated(t);
+    }
+    h_gate[0] = (uint8_t)gated(t);
+    for (x = 1; x < 180u; x++) {
+        arp_tick(t, d);
+        if (t->arp_rat != r && h_n < 8u) {
+            r = t->arp_rat;
+            h_at[h_n] = x;
+            h_note[h_n] = t->arp_str == 2u ? t->arp_ch[t->arp_n - 1u] : t->arp_ch[0];
+            h_vel[h_n] = (uint8_t)vel_of(t, h_note[h_n]);
+            h_nv[h_n++] = (uint8_t)gated(t);
+        }
+        h_gate[x] = (uint8_t)gated(t);
+    }
+    for (i = 0, h_act = 0; i < NVOICE; i++)
+        h_act += t->v[i].active;
+    arp_tick(t, d);
+}
+static int notes_are(const uint8_t *w, uint32_t n)
+{
+    return h_n == n && !memcmp(h_note, w, n);
+}
+static int spaced(uint32_t s)                    /* the notes start s ticks apart */
+{
+    uint32_t i;
+    for (i = 0; i < h_n; i++)
+        if (h_at[i] != i * s)
+            return 0;
+    return 1;
+}
 
 int main(void)
 {
@@ -367,6 +435,268 @@ int main(void)
         const step_t *s = &t->step[0];
         check("REC: a CHRD step recorded with its notes, level (hard) and ratchet (x2)",
               s->n == 2 && s->note[0] == 60 && s->note[1] == 64 && (s->lvl & 3u) == LV_HARD && (s->rat & 3u) == 1u);
+    }
+
+    /* STRUM: RAT UP2..DN4 */
+    ok = TP[P_ARAT].max == AR_DN4 && TP[P_ARAT].def == AR_X1 && str_eq(TP[P_ARAT].names[AR_X4], "X4") &&
+         str_eq(TP[P_ARAT].names[AR_UP2], "UP2") && str_eq(TP[P_ARAT].names[AR_DN4], "DN4");
+    for (i = 0; i <= AR_DN4; i++)
+        ok &= str_len(TP[P_ARAT].names[i]) <= 5u;
+    check("RAT names: X1..X4, UP2..UP4, DN2..DN4 (5 characters at most)", ok);
+    {
+        static const uint8_t R1[] = {60, 64, 67, 71}, R2[] = {64, 67, 71, 60}, D1[] = {60, 71, 67}, D2[] = {64, 60, 71},
+                             O[] = {83, 60, 64}, CD[] = {71, 67, 64, 60}, C2[] = {72, 76, 79, 83}, RE[] = {64, 67}, RG[] = {67, 71};
+        t = setup(A_UP, CEGB, 4, 1);
+        t->p[P_ARAT] = AR_UP4;
+        step(t);
+        play_step(t);
+        ok = notes_are(R1, 4) && spaced(45) && h_gate[179] == 0 && t->arp_ch[0] == 64;
+        for (i = 0; i < h_n; i++)
+            ok &= h_nv[i] == 1 && h_vel[i] == 100;
+        play_step(t);
+        ok &= notes_are(R2, 4) && spaced(45);
+        check("STRUM UP4, UP: C E G B at 0 1/4 2/4 3/4 of the step, one at a time; then E G B C (wraps)", ok);
+
+        t = setup(A_UP, CEGB, 4, 1);
+        t->p[P_ARAT] = AR_DN3;
+        step(t);
+        play_step(t);
+        ok = notes_are(D1, 3) && spaced(60);
+        play_step(t);
+        ok &= notes_are(D2, 3) && spaced(60);
+        check("STRUM DN3, UP: C B G (wraps down) at 0 1/3 2/3, then E C B", ok);
+
+        t = setup(A_UP, CEGB, 4, 2);
+        t->p[P_ARAT] = AR_UP3;
+        step(t);
+        for (i = 0; i < 7; i++)
+            play_step(t);
+        play_step(t);
+        ok = notes_are(O, 3) && t->arp_ch[0] == 60;
+        check("STRUM UP3, UP over 2 octaves: B' C E (the list wraps), then the order goes on (C)", ok);
+
+        t = setup(A_UP, CEGB, 4, 1);
+        t->p[P_ARAT] = AR_UP2;
+        t->p[P_AROT] = 1;
+        step(t);
+        play_step(t);
+        ok = notes_are(RE, 2) && spaced(90);
+        play_step(t);
+        ok &= notes_are(RG, 2);
+        check("STRUM UP2 with ROT 1: E G, then G B", ok);
+
+        t = setup(A_CHRD, PLAYED, 4, 2);
+        t->p[P_ARAT] = AR_UP3;
+        step(t);
+        play_step(t);
+        ok = notes_are(R1, 4) && spaced(20) && h_gate[89] == 4 && h_gate[90] == 0;
+        for (i = 0; i < 4; i++)
+            ok &= h_nv[i] == i + 1u && h_vel[i] == 100;
+        ok &= h_act == 4;                               /* four voices: none retriggered */
+        play_step(t);
+        ok &= notes_are(C2, 4) && spaced(20);
+        check("STRUM UP3, CHRD (G C B E held): C E G B 1/9 step apart, all held to the gate (50 %), then an octave up", ok);
+
+        t = setup(A_CHRD, CEGB, 4, 1);
+        t->p[P_ARAT] = AR_DN2;
+        step(t);
+        play_step(t);
+        ok = notes_are(CD, 4) && spaced(15) && h_gate[89] == 4 && h_gate[90] == 0;
+        t = setup(A_CHRD, CEGB, 4, 1);
+        t->p[P_ARAT] = AR_UP3;
+        t->p[P_AGATE] = 96;
+        step(t);
+        play_step(t);
+        ok &= notes_are(R1, 4) && spaced(30) && h_gate[134] == 4 && h_gate[135] == 0;
+        t = setup(A_CHRD, CEGB, 1, 1);
+        t->p[P_ARAT] = AR_UP4;
+        step(t);
+        play_step(t);
+        ok &= h_n == 1 && h_note[0] == 60 && h_gate[89] == 1 && h_gate[90] == 0;
+        check("STRUM CHRD: DN2 B G E C over half the gate; GATE 75 %: the strum and the notes longer; one note: no strum", ok);
+
+        t = setup(A_UP, CEGB, 4, 1);
+        t->p[P_ARAT] = AR_UP4;
+        t->p[P_AHITS] = 1;
+        t->p[P_ASTEPS] = 2;
+        step(t);
+        play_step(t);
+        ok = notes_are(R1, 4);
+        play_step(t);
+        ok &= h_n == 0;
+        for (i = 0; i < 180; i++)
+            ok &= h_gate[i] == 0;
+        play_step(t);
+        ok &= notes_are(R2, 4);
+        check("STRUM with HITS 1 of 2: a rest plays no run, the order goes on (C E G B, rest, E G B C)", ok);
+
+        t = setup(A_UP, CEGB, 4, 1);
+        t->p[P_ARAT] = AR_UP2;
+        t->p[P_AACC] = 1;
+        step(t);
+        play_step(t);
+        ok = h_n == 2 && h_vel[0] == 127 && h_vel[1] == 127;
+        play_step(t);
+        ok &= h_n == 2 && h_note[0] == 64 && h_vel[0] == 72 && h_vel[1] == 72;
+        t = setup(A_CHRD, CEGB, 4, 1);
+        t->p[P_ARAT] = AR_DN4;
+        t->p[P_AACC] = 1;
+        step(t);
+        play_step(t);
+        for (i = 0; i < h_n; i++)
+            ok &= h_vel[i] == 127;
+        play_step(t);
+        for (i = 0; i < h_n; i++)
+            ok &= h_vel[i] == 72;
+        check("STRUM with ACC 1IN2: every note of a run or a strum at its step's level (hard, soft)", ok && h_n == 4);
+    }
+    {
+        uint32_t run[80];
+        t = setup(A_RND, CEGB, 4, 2);
+        t->p[P_ADEJA] = 127;
+        t->p[P_APROB] = 80;
+        t->p[P_ARAT] = AR_UP3;
+        step(t);
+        for (i = 0; i < 80; i++) {
+            play_step(t);
+            run[i] = h_n ? h_note[0] | (uint32_t)h_note[1] << 8 | (uint32_t)h_note[2] << 16 | h_n << 24 : 0u;
+        }
+        for (i = 0, ok = 1; i < 64; i++)
+            ok &= run[i] == run[i + 16];
+        for (i = 0, k = 0; i < 16; i++)
+            k += !run[i];
+        check("STRUM with DEJA 127, RND, PROB 80: the runs and the rests repeat every 16 steps", ok && k && k < 16);
+    }
+    {
+        uint32_t u, sw, into, slen[2], hit[2];
+        t = setup(A_UP, CEGB, 4, 1);
+        t->p[P_ARAT] = AR_UP2;
+        t->p[P_ASWING] = 50;
+        song.playing = 1;
+        u = unit(t);
+        sw = swing_units(50, u);
+        for (k = 0; k < 2; k++) {
+            clk_beat = 0;
+            clk_pos = k * (u + sw);                     /* the steps' starts: the odd one sw late */
+            grid_at(4, sw, &into, &slen[k]);
+            arp_tick(t, 1);
+            for (hit[k] = 0; t->arp_rat && hit[k] < u; hit[k] += 1000u)
+                arp_tick(t, 1000);
+        }
+        ok = slen[0] == u + sw && slen[1] == u - sw;
+        for (k = 0; k < 2; k++)
+            ok &= hit[k] >= slen[k] / 2u && hit[k] < slen[k] / 2u + 1000u;
+        check("STRUM playing with SWG 50: each run's second note half way through its swung step", ok);
+    }
+    /* recording a strum */
+    {
+        const step_t *s = &trk[0].step[0];
+        t = setup(A_UP, CEGB, 4, 1);
+        t->p[P_ARAT] = AR_UP4;
+        song.playing = song.rec = 1;
+        arp_tick(t, CTL * (uint32_t)song.g[G_BPM]);
+        ok = s->n == 4 && !memcmp(s->note, CEGB, 4) && s->rat == 0;
+        t = setup(A_UP, CEGB, 2, 1);
+        t->p[P_ARAT] = AR_UP4;
+        song.playing = song.rec = 1;
+        arp_tick(t, CTL * (uint32_t)song.g[G_BPM]);
+        ok &= s->n == 2 && s->note[0] == 60 && s->note[1] == 64 && s->rat == 0;
+        t = setup(A_CHRD, CEGB, 2, 1);
+        t->p[P_ARAT] = AR_DN2;
+        t->p[P_AACC] = 1;
+        song.playing = song.rec = 1;
+        arp_tick(t, CTL * (uint32_t)song.g[G_BPM]);
+        ok &= s->n == 2 && s->note[0] == 64 && s->note[1] == 60 && s->lvl == (LV_HARD | LV_HARD << 2) && s->rat == 0;
+        check("REC: a run or a strum recorded as a chord of its notes (C E G B; C E C E: C E), x1, its level", ok);
+    }
+    /* STRUM: nothing left on */
+    for (k = 0, ok = 1; k < 2; k++) {
+        uint32_t d;
+        t = setup(k ? A_CHRD : A_UP, CEGB, 4, 1);
+        t->p[P_ARAT] = AR_UP4;
+        t->p[P_AGATE] = 127;
+        step(t);
+        d = unit(t) / 180u;
+        for (i = 0; i < 50; i++)
+            arp_tick(t, d);
+        ok &= gated(t) == (k ? 2u : 1u);
+        release_all(t);
+        for (i = 0; i < 360; i++) {
+            arp_tick(t, d);
+            ok &= gated(t) == 0;
+        }
+    }
+    check("STRUM: keys let go mid-run or mid-strum: every note off at once, none after", ok);
+    t = setup(A_UP, CEGB, 4, 1);
+    t->p[P_ARAT] = AR_X4;
+    step(t);
+    t->p[P_ARAT] = AR_UP4;
+    play_step(t);
+    ok = h_n == 4 && h_note[1] == 60 && h_note[3] == 60 && h_gate[179] == 0;
+    t = setup(A_CHRD, CEGB, 4, 1);
+    t->p[P_ARAT] = AR_UP4;
+    step(t);
+    t->p[P_ARAT] = AR_X2;
+    play_step(t);
+    ok &= notes_are(CEGB, 4) && h_gate[179] == 0;
+    check("RAT turned inside a step: it ends as it started (a ratchet, a strum), nothing left on", ok);
+    {
+        uint32_t s;
+        for (s = 0, ok = 1; s < 3; s++) {
+            t = setup(A_CHRD, CEGB, 4, 1);
+            t->p[P_ARAT] = AR_UP4;
+            t->p[P_AGATE] = 127;
+            song.playing = s == 2;
+            for (i = 0; i < 400 && t->arp_n < 2; i++)
+                events_block(CTL);
+            ok &= t->arp_n == 2 && gated(t) == 2;
+            if (s == 0)
+                t->p[P_AMODE] = 0;                      /* ARP off */
+            else if (s == 1)
+                panic_req = 1;
+            else
+                seq_stop();
+            for (i = 0; i < 2000; i++) {
+                events_block(CTL);
+                ok &= s == 2 ? tracked(t) : gated(t) == 0;
+            }
+            release_all(t);
+            events_block(CTL);
+            ok &= gated(t) == 0;
+        }
+        check("STRUM: ARP off, panic, STOP mid-strum: nothing left on", ok);
+    }
+    {
+        uint32_t x = 12345u, r, d;
+        t = setup(A_UP, CEGB, 4, 1);
+        for (i = 0, ok = 1; i < 100000; i++) {
+            x = x * 1664525u + 1013904223u;
+            r = x >> 8;
+            switch (r % 32u) {
+            case 0: t->p[P_ARAT] = (int16_t)(r / 32u % 10u); break;
+            case 1: t->p[P_AMODE] = (int16_t)(1u + r / 32u % 14u); break;
+            case 2: t->p[P_AGATE] = (int16_t)(1u + r / 32u % 127u); break;
+            case 3: t->p[P_AHITS] = (int16_t)(1u + r / 32u % 16u); t->p[P_ASTEPS] = (int16_t)(1u + r / 512u % 16u); break;
+            case 4: t->p[P_AACC] = (int16_t)(r / 32u % 6u); t->p[P_AOCT] = (int16_t)(1u + r / 512u % 4u); break;
+            case 5: t->p[P_AROT] = (int16_t)(r / 32u % 16u); t->p[P_ADEJA] = (int16_t)(r / 512u % 128u); break;
+            case 6: t->p[P_ASWING] = (int16_t)(r / 32u % 101u); t->p[P_ARHYM] = (int16_t)(r / 4096u % 16u); break;
+            case 7: song.playing = !song.playing; t->p[P_ASYNC] = (int16_t)(r / 32u % 3u); break;
+            case 8: case 9: case 10: arp_add(t, 48u + r / 32u % 37u); break;
+            case 11: case 12: if (t->nheld) arp_remove(t, t->held[r / 32u % t->nheld]); break;
+            default: break;
+            }
+            d = 300u + (x >> 4) % 200000u;
+            if (song.playing) {
+                clk_pos += d;
+                clk_beat += clk_pos / BEAT_U;
+                clk_pos %= BEAT_U;
+            }
+            arp_tick(t, d);
+            ok &= tracked(t);
+        }
+        release_all(t);
+        arp_tick(t, 1);
+        check("STRUM fuzz (RAT, MODE, GATE, HITS, ACC, OCT, ROT, DEJA, SWG, RHYM, SYNC, keys, play / stop): no note untracked", ok && !gated(t));
     }
 
     /* off */

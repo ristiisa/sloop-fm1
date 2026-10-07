@@ -5,7 +5,7 @@ static const char *const N_LWAVE[] = {"SIN", "TRI", "SAW", "SQR", "S&H"};
 static const char *const N_AMODE[] = {"OFF", "UP", "DN", "UPDN", "RND", "ORD", "UPDN+", "CONV", "DIVG",
                                      "THMB", "PNKY", "DRNK", "SHUF", "OCTI", "CHRD"};   /* seq.c A_* */
 static const char *const N_AACC[] = {"OFF", "1IN2", "1IN3", "1IN4", "3-3-2", "RND"};   /* seq.c arp_vel */
-static const char *const N_ARAT[] = {"X1", "X2", "X3", "X4"};
+static const char *const N_ARAT[] = {"X1", "X2", "X3", "X4", "UP2", "UP3", "UP4", "DN2", "DN3", "DN4"};   /* seq.c AR_* */
 static const char *const N_ASYNC[] = {"NOTE", "BAR", "FREE"};   /* seq.c AS_* */
 static const char *const N_ARHYM[] = {"OFF", "QRTR", "8TH", "OFFB", "GALOP", "SKIP", "DOT8", "TRES", "CINQ",
                                       "SON32", "SON23", "RUMBA", "BOSSA", "SHIKO", "SOUK", "GAHU"};   /* seq.c ARP_RHYM */
