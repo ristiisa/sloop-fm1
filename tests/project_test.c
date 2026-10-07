@@ -121,11 +121,12 @@ int main(void)
     uint32_t i, t;
     int bad = 0, ok;
 
-    bad += check("layout: P_CHORD, the arp rhythm, ROT..DEJA, SHIFT, CYC, TURN, P_E0 (61); P_COUNT = format 4's + 11",
+    bad += check("layout: P_CHORD, the arp rhythm, ROT..DEJA, SHIFT, CYC, TURN, COLOR, P_E0 (64); P_COUNT = format 4's + 14",
                  P_CHORD + 1 == P_AACC && P_ARAT + 1 == P_AROT && P_ADEJA + 1 == P_ASHIFT && P_ACYC + 1 == P_TURN &&
-                 P_TURN + 1 == P_E0 && P_E0 == 61 && P_COUNT == 69 && P_COUNT == PROJ_NP_V4 + 11u && P_SLDEPTH + 1 == P_CHORD);
-    bad += check("format 5: the tracks, a condition per step and track, the locks, then the sum (3680 bytes)",
-                 sizeof(project_t) == 3680u && PLK_MAX == 56u &&
+                 P_TURN + 1 == P_COLOR && P_COLOR + 3 == P_E0 && P_E0 == 64 && P_COUNT == 72 &&
+                 P_COUNT == PROJ_NP_V4 + 14u && P_SLDEPTH + 1 == P_CHORD);
+    bad += check("format 5: the tracks, a condition per step and track, the locks, then the sum (3704 bytes)",
+                 sizeof(project_t) == 3704u && PLK_MAX == 56u &&
                  __builtin_offsetof(project_t, cond) + NTRK * NSTEP == __builtin_offsetof(project_t, lk) &&
                  __builtin_offsetof(project_t, lk) + 4u * PLK_MAX + 4u == sizeof(project_t));
     /* (.noinit holds 200 bytes besides the slots: fm1_crash, felucca_dbg, bootguard, panel, settings) */
@@ -241,12 +242,15 @@ int main(void)
     q.t[2].p[P_ACYC] = 7;
     q.t[1].p[P_TURN] = 35;
     q.t[TRK_DRUM].p[P_TURN] = 100;
+    q.t[0].p[P_COLOR] = 4, q.t[0].p[P_CAMT] = 99, q.t[0].p[P_CRATE] = 57;
+    q.t[TRK_DRUM].p[P_COLOR] = 1;
     q.sum = proj_sum(&q);
     memcpy(&buf, &q, sizeof q);
-    bad += check("FUN5 -> FUN5: as stored (levels, ratchets, lanes, engine 8, RHYM, DEJA, SHIFT, CYC, TURN)",
+    bad += check("FUN5 -> FUN5: as stored (levels, ratchets, lanes, engine 8, RHYM, DEJA, SHIFT, CYC, TURN, COLOR)",
                  proj_import(&q2, &buf, (int)sizeof q) && !memcmp(&q, &q2, sizeof q) && q2.t[1].engine == 8 &&
                  q2.t[2].p[P_ASHIFT] == -3 && q2.t[2].p[P_ACYC] == 7 && q2.t[1].p[P_TURN] == 35 &&
-                 q2.t[TRK_DRUM].p[P_TURN] == 100);
+                 q2.t[TRK_DRUM].p[P_TURN] == 100 && q2.t[0].p[P_COLOR] == 4 && q2.t[0].p[P_CAMT] == 99 &&
+                 q2.t[0].p[P_CRATE] == 57 && q2.t[TRK_DRUM].p[P_COLOR] == 1 && q2.t[0].p[P_E0] == q.t[0].p[P_E0]);
     q.cond[0][3] = CN_1_4;
     q.cond[TRK_DRUM][5] = CN_P25;
     q.cond[2][63] = CN_NFIRST;
@@ -325,23 +329,27 @@ int main(void)
     host_tracks_init();
     host_preset(&trk[0], 0, 0);
     ok = plk_set(&trk[0], 4, P_ED_FLT, 30) && plk_set(&trk[0], 4, P_E1, 20) && plk_set(&trk[1], 0, P_REV, 100) &&
-         plk_set(TDRUM, 2, P_SLDEPTH, 64);
+         plk_set(TDRUM, 2, P_SLDEPTH, 64) && plk_set(&trk[2], 9, P_COLOR, 3) && plk_set(&trk[2], 9, P_CRATE, 70) &&
+         plk_set(&trk[2], 9, P_E7, 5) && plk_set(TDRUM, 3, P_CAMT, 11);
     trk[0].p[P_ED_FLT] = -10;
     proj_capture(&q);
     host_tracks_init();
     proj_apply(&q, 1);
     {
-        int16_t v = 0, w = 0, x = 0, y = 0;
+        int16_t v = 0, w = 0, x = 0, y = 0, c0 = 0, c1 = 0, c2 = 0, c3 = 0;
         ok &= plk_get(&trk[0], 4, P_ED_FLT, &v) && v == 30 && plk_get(&trk[0], 4, P_E1, &w) && w == 20 &&
               plk_get(&trk[1], 0, P_REV, &x) && x == 100 && plk_get(TDRUM, 2, P_SLDEPTH, &y) && y == 64 &&
               trk[0].p[P_ED_FLT] == -10 && plk_count(&trk[0], 4) == 2u;
+        ok &= plk_get(&trk[2], 9, P_COLOR, &c0) && c0 == 3 && plk_get(&trk[2], 9, P_CRATE, &c1) && c1 == 70 &&
+              plk_get(&trk[2], 9, P_E7, &c2) && c2 == 5 && plk_get(TDRUM, 3, P_CAMT, &c3) && c3 == 11 &&
+              plk_count(&trk[2], 9) == 3u;
     }
-    bad += check("locks: capture -> apply round trip (the track's own value kept apart)", ok);
+    bad += check("locks: capture -> apply round trip (the track's own value kept apart; COLOR, EDIT 8 on its id)", ok);
     memset(q.lk, 0, sizeof q.lk);
     q.lk[0] = (plk_t){0 << 6 | 1, P_ED_FLT + 1, 500};       /* out of its range: clamped */
     q.lk[1] = (plk_t){0 << 6 | 1, P_ED_FLT + 1, 5};         /* the same lock again: dropped */
     q.lk[2] = (plk_t){0 << 6 | 1, P_SLEN + 1, 3};           /* a pattern parameter: dropped */
-    q.lk[3] = (plk_t){TRK_DRUM << 6 | 1, P_ATK + 1, 3};     /* the drum track: only its SLICER */
+    q.lk[3] = (plk_t){TRK_DRUM << 6 | 1, P_ATK + 1, 3};     /* the drum track: only its SLICER and COLOR */
     q.lk[4] = (plk_t){1 << 6 | 2, P_COUNT + 1, 3};          /* no such parameter */
     q.lk[5] = (plk_t){2 << 6 | 63, P_PAN + 1, -80};         /* the last step, clamped */
     for (i = 0; i < PLK_STEP + 2u; i++)                     /* 10 on one step: 8 kept */

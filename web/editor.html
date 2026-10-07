@@ -1071,7 +1071,7 @@ function zipStore(files) {
        "format": "felucca-library", "version": 1,
        "kind": "library" | "bank" | "patch",
        "firmware": "FELUCCA 0.5 ...",          device version string when exported ("" if unknown)
-       "pCount": 69, "pE0": 61,                 P_COUNT and the first engine parameter id
+       "pCount": 72, "pE0": 64,                 P_COUNT and the first engine parameter id
        "paramLabels": ["LVL", "ATK", ...],      one key per parameter id: the DESC label, "#2", "#3" appended to
                                                 a repeated label (PIT, PIT#2), and "E0".."E7" for the engine
                                                 parameters (their labels depend on the engine)
@@ -1409,6 +1409,7 @@ function makeMockDevice(opt = {}) {
     D("ROT", F.INT, 0, 15, 0), E("SYNC", ["NOTE", "BAR", "FREE"], 0),
     E("RHYM", ["OFF", "QRTR", "8TH", "OFFB", "GALOP", "SKIP", "DOT8", "TRES", "CINQ", "SON32", "SON23", "RUMBA", "BOSSA", "SHIKO", "SOUK", "GAHU"], 0), D("DEJA", F.PCT, 0, 127, 0),
     D("SHIFT", F.INT, -7, 7, 0), D("CYC", F.INT, 2, 8, 4), D("TURN", F.PCT, 0, 100, 0),
+    E("TYPE", ["OFF", "PHASR", "WAH", "FOLD", "RING"], 0), D("AMT", F.PCT, 0, 127, 64), D("RATE", F.INT, 0, 127, 40),
   ];
   const GP = [
     D("BPM", F.BPM, 40, 240, 90), D("SWING", F.SWING, 0, 100, 0), E("CLICK", ["OFF", "REC", "ON"], 0), D("TUNE", F.INT, -50, 50, 0),
@@ -1527,7 +1528,7 @@ function makeMockDevice(opt = {}) {
     [[60, 60, 61, 61, 62, 0, 63, 63, 64, 65, 65, 0, 66, 66, 66, 67], [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0]],
     [[60, 61, 62, 63, 64, 65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75], [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0]],
   ];
-  const P_COUNT = 69, G_COUNT = 32, NSTEP = 64, P_E0 = 61, G_ENGSEL = 20, P_SLCR = 45, P_CHORD = 49;
+  const P_COUNT = 72, G_COUNT = 32, NSTEP = 64, P_E0 = 64, G_ENGSEL = 20, P_SLCR = 45, P_CHORD = 49, P_COLOR = 61;
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   /* four tracks (firmware v3); engine / preset / p / step below are the selected track's */
   const NTRK = 4, TRK_DRUM = 3;
@@ -1571,6 +1572,7 @@ function makeMockDevice(opt = {}) {
     st.p[37] = pr.mono ? 2 : 0;
     st.p[33] = 0; st.p[34] = 24; st.p[35] = 28; st.p[36] = 36;
     for (let i = P_SLCR; i < P_CHORD; i++) st.p[i] = TP[i].def;   /* a factory preset turns the SLICER off (CHORD stays: the key) */
+    for (let i = P_COLOR; i < P_E0; i++) st.p[i] = TP[i].def;     /* .. and the COLOR */
     if (demo && pr.pat && seqEmpty()) loadPattern(pr.pat - 1);
   }
   function setEngine(ei) {
@@ -2312,14 +2314,14 @@ function selfLoad() {
 const stepEdit = new Map(); /* index -> time of the last edit */
 
 /* parameter ids (firmware/src/core.h); used only when P_COUNT / G_COUNT match */
-const EXPECT = { pcount: 69, gcount: 32, pe0: 61 };
+const EXPECT = { pcount: 72, gcount: 32, pe0: 64 };
 const P = { LEVEL: 0, SLEN: 29, CHORD: 49 };
 const LAYOUT = (pe0) => [
   { t: "ENV", pages: [["ENV", 0, [1, 2, 3, 4]], ["ENV DEST", 0, [5, 6, 7, 8]]] },
   { t: "LFO", pages: [["LFO", 0, [9, 10, 11, 12]], ["LFO DEST", 0, [13, 14, 15, 16]]] },
   { t: "EDIT", engine: true, pages: [["EDIT 1", 0, [pe0, pe0 + 1, pe0 + 2, pe0 + 3]], ["EDIT 2", 0, [pe0 + 4, pe0 + 5, pe0 + 6, pe0 + 7]]] },
   { t: "VOICE", pages: [["LEVEL", 0, [0]], ["VOICE", 0, [37, 38, 41, 42]], ["VOICE 2", 0, [43, 44, 39, 40]]] },
-  { t: "FX", pages: [["FX", 0, [33, 34, 35, 36]], ["SLICER", 0, [45, 46, 47, 48]], ["DLY", 1, [4, 5, 6, 7]], ["REV/CHO", 1, [8, 9, 10, 11]]] },
+  { t: "FX", pages: [["FX", 0, [33, 34, 35, 36]], ["SLICER", 0, [45, 46, 47, 48]], ["COLOR", 0, [61, 62, 63]], ["DLY", 1, [4, 5, 6, 7]], ["REV/CHO", 1, [8, 9, 10, 11]]] },
   { t: "SCL", pages: [["SCL", 0, [25, 26, 27, 49]], ["SCL 2", 0, [28]]] },
   { t: "ARP", pages: [["ARP", 0, [17, 18, 19, 20]], ["ARP 2", 0, [21, 22, 23, 24]], ["ARP 3", 0, [50, 51, 52, 53]], ["ARP 4", 0, [54, 55, 56, 57]], ["ARP 5", 0, [58, 59]]] },
   { t: "SEQ PATTERN", tab: "seqgroups", pages: [["PATTERN", 0, [29, 30, 31, 32]], ["PATTERN 2", 0, [60]]] },

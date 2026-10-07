@@ -6,6 +6,8 @@
 # loop has none), the mix out of the ISR into its own function (fm1_alnk0_irq calls it).
 # SLOOP 2.5: pk_render, the Peaks drum models (drum_peaks.c, out of line from drums_mix): its four
 # per-sample loops (BD 81, HH 97, SD 151, FM 74 instructions).
+# SLOOP 2.5: color_track, the COLOR insert (color.c, out of line from mix_part / slicer_drums): its per-sample
+# loops (PHASR 62, WAH 51, FOLD 25, RING 26 instructions; one runs a block) and the scan for silence (4).
 analog_render 638
 digital_render 333
 phase_render 79
@@ -19,6 +21,7 @@ drawbar_block 102
 grain_render 1734
 grain_block 138
 slicer_track 825
+color_track 168
 drums_mix 6153
 pk_render 403
 fm1_alnk0_irq 174

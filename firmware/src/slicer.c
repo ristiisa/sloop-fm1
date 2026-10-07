@@ -175,13 +175,14 @@ static int slicer_busy(const track_t *t)
     return s->w || (t->p[P_SLCR] == SL_STUT && s->loop);
 }
 
-/* the drum track: as drums_render, through the SLICER when it is on (or still fading) */
+/* the drum track: as drums_render, through the COLOR (color.c) and the SLICER when they are on (or
+ * the SLICER still fading) */
 static void slicer_drums(int32_t *ml, int32_t *mr, int32_t *rev, uint32_t n)
 {
     const track_t *t = TDRUM;
     const sl_t *s = &sl[TRK_DRUM];
     uint32_t i;
-    if (t->p[P_SLCR] == SL_OFF && !s->gc && !s->w) {
+    if (t->p[P_SLCR] == SL_OFF && !s->gc && !s->w && !t->p[P_COLOR]) {
         slicer_track(t, 0, n);
         drums_render(ml, mr, rev, n);
         return;
@@ -189,6 +190,8 @@ static void slicer_drums(int32_t *ml, int32_t *mr, int32_t *rev, uint32_t n)
     for (i = 0; i < n; i++)
         sl_dbuf[i] = 0;
     drums_render_mono(sl_dbuf, n);
+    if (t->p[P_COLOR])
+        color_track(t, sl_dbuf, n);
     slicer_track(t, sl_dbuf, n);
     {
         int32_t send = song.g[G_DRREV] * 258, pan = t->p[P_PAN];

@@ -94,7 +94,7 @@ typedef struct {                               /* format 1 (until 0.5 beta), rea
 } project_v1_t;
 _Static_assert(sizeof(project_v2_t) == 2552u && sizeof(project_v1_t) == 688u && sizeof(project_v3_t) == 2584u &&
                sizeof(project_v4_t) == 3112u, "formats 1 .. 4 as they were stored");
-_Static_assert(sizeof(plk_t) == 4u && sizeof(project_t) == 3680u, "format 5");
+_Static_assert(sizeof(plk_t) == 4u && sizeof(project_t) == 3704u, "format 5");
 project_t proj_slot[4] __attribute__((section(".noinit")));
 
 static uint32_t proj_hash(const void *p, uint32_t n)   /* FNV-1a over n bytes */

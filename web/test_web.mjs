@@ -44,7 +44,7 @@ async function editorMock() {
   inp.onmidimessage = (e) => link.receive(e.data);
   const rq = async (r, o) => link.request(r, o);
   const info = E.parse[E.CMD.INFO](await rq(E.req.info()));
-  ok(info.nengines === 9 && info.engines[5] === "VOICE" && info.engines[6] === "TRIO" && info.engines[7] === "WHEEL" && info.engines[8] === "GRAIN" && info.pcount === 69 && info.pe0 === 61 && info.engines[4] === "SAMPLE",
+  ok(info.nengines === 9 && info.engines[5] === "VOICE" && info.engines[6] === "TRIO" && info.engines[7] === "WHEEL" && info.engines[8] === "GRAIN" && info.pcount === 72 && info.pe0 === 64 && info.engines[4] === "SAMPLE",
     "editor: INFO");
   let descs = 0;
   for (let i = 0; i < info.pcount; i++) if (E.parse[E.CMD.DESC](await rq(E.req.desc(0, i))).label) descs++;
@@ -67,6 +67,18 @@ async function editorMock() {
     await rq(E.req.preset(0, 1));
     const off = E.parse[E.CMD.DUMP](await rq(E.req.dump()), info);
     ok(on.p[45] === 2 && on.p[46] === 7 && off.p[45] === 0 && off.p[46] === 1, "editor: a factory preset turns the SLICER off");
+    /* the COLOR (core.h P_COLOR..P_CRATE = 61..63, just before P_E0): the mock as params.c has it, a preset turns it off */
+    const cd = [];
+    for (let i = 61; i < 64; i++) cd.push(E.parse[E.CMD.DESC](await rq(E.req.desc(0, i))));
+    ok(cd.map((d) => d.label).join() === "TYPE,AMT,RATE" && cd[0].names.join() === "OFF,PHASR,WAH,FOLD,RING" && cd[1].def === 64 && cd[2].def === 40
+      && /N_COLOR\[\] = \{"OFF", "PHASR", "WAH", "FOLD", "RING"\}/.test(pc) && /\[P_COLOR\] = PE\("TYPE", N_COLOR, 0\)/.test(pc)
+      && /\[P_CAMT\] = PD\("AMT", F_PCT, 0, 127, 64\)/.test(pc) && /\[P_CRATE\] = PD\("RATE", F_INT, 0, 127, 40\)/.test(pc),
+      "editor: COLOR parameters 61..63 (mock == params.c)");
+    await rq(E.req.set(0, 61, 4));
+    const con = E.parse[E.CMD.DUMP](await rq(E.req.dump()), info);
+    await rq(E.req.preset(0, 2));
+    const coff = E.parse[E.CMD.DUMP](await rq(E.req.dump()), info);
+    ok(con.p[61] === 4 && coff.p[61] === 0 && coff.p[62] === 64, "editor: a factory preset turns the COLOR off");
   }
   const scale = E.parse[E.CMD.DESC](await rq(E.req.desc(0, 26)));
   const scaleNames = ["CHR", "MAJ", "MIN", "DOR", "MIX", "PEN", "MPEN", "HARM", "PHRY", "LYD", "LOC", "MEL", "BLUES", "WHOLE", "DIMHW", "DIMWH"];
@@ -198,7 +210,7 @@ async function editorLibrarian() {
   const ctx = { keys, engines: info.engines, firmware: info.version, pe0: info.pe0 };
   const pts = [cap, { ...bass, engineName: info.engines[bass.engine], tags: ["bass", "device"] }];
   const file = JSON.parse(JSON.stringify(E.libraryFile("library", pts, ctx)));
-  ok(file.format === "felucca-library" && file.version === 1 && file.pCount === 69 && file.paramLabels.length === 69 && file.engines.length === 9,
+  ok(file.format === "felucca-library" && file.version === 1 && file.pCount === 72 && file.paramLabels.length === 72 && file.engines.length === 9,
     "library file: versioned, with P_COUNT, labels and engines");
   const back = E.readLibraryFile(file, ctx);
   ok(back.patches.length === 2 && !back.skipped && eq(back.patches[0].p, cap.p) && eq(back.patches[1].p, bass.p)
@@ -209,7 +221,7 @@ async function editorLibrarian() {
   const eng2 = ["PHASE", "ANALOG", "SAMPLE"];
   const fut = E.readLibraryFile(file, { keys: keys2, engines: eng2 });
   const p0 = fut.patches[0].p;
-  ok(fut.patches.length === 2 && p0.length === 70 && p0[5] === null && p0[6] === cap.p[5] && p0[69] === cap.p[68]
+  ok(fut.patches.length === 2 && p0.length === 73 && p0[5] === null && p0[6] === cap.p[5] && p0[72] === cap.p[71]
     && fut.patches[0].engine === 1 && fut.patches[1].engine === 0, "library file: other ids / engine order mapped by label and name");
   const lost = E.readLibraryFile({ ...file, patches: [{ ...file.patches[0], engineName: "WAVETABLE" }] }, ctx);
   ok(lost.patches.length === 0 && lost.skipped === 1, "library file: a patch for an unknown engine is skipped");
@@ -235,7 +247,7 @@ async function editorLive() {
   const dump = E.parse[C.DUMP](await pend, info);
   const ch = ev.pushes.find((f) => f.cmd === C.CHANGED);
   const cv = ch && E.parse[C.CHANGED](ch.a);
-  ok(dump.p.length === 69 && ch && ch.pending === C.DUMP && cv.scope === 0 && cv.id === 9 && cv.value === kn.value && !ev.unknown.length,
+  ok(dump.p.length === 72 && ch && ch.pending === C.DUMP && cv.scope === 0 && cv.id === 9 && cv.value === kn.value && !ev.unknown.length,
     "live: CHANGED while DUMP waits -> push handler, reply still matched");
   const rl = m.sim.reload();
   m.sim.step(3);
@@ -481,7 +493,7 @@ async function editorV5() {
   const C = E.CMD;
   const { m, rq, ev, done } = attachMock({ watchMs: 1000 });
   const info = E.parse[C.INFO](await rq(E.req.info()));
-  ok(info.proto === 6 && /SLOOP/.test(info.version) && info.pcount === 69 && info.gcount === 32 && info.pe0 === 61, "v5/v6: INFO ends with the protocol version (6: backup)");
+  ok(info.proto === 6 && /SLOOP/.test(info.version) && info.pcount === 72 && info.gcount === 32 && info.pe0 === 64, "v5/v6: INFO ends with the protocol version (6: backup)");
   /* the firmware says the same: ED_DRUM_STEP is command 33, INFO sends 5, P_CHORD / the master globals as the mock has them */
   const ec = readFileSync(join(HERE, "../firmware/src/editor.c"), "utf8"), pc = readFileSync(join(HERE, "../firmware/src/params.c"), "utf8");
   const en = (/enum \{ ED_INFO = 1,([^}]*)\}/.exec(ec) || [])[1] || "";

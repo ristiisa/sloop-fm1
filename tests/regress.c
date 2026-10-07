@@ -5,7 +5,8 @@
  *
  * 1. golden renders: every engine x factory preset, the GM drum kit and each synthesised one, the voice
  *    modes (POLY / MONO / LEGATO / UNISON) of three engines, the FX sends, a 4-track sequencer mix, and
- *    the SLICER (slicer.c: GATE / STUT on the phrase, and on the 4-track mix with the transport). Each render plays
+ *    the SLICER (slicer.c: GATE / STUT on the phrase, and on the 4-track mix with the transport), the COLOR
+ *    insert (color.c: PHASR, WAH, FOLD, RING on the phrase). Each render plays
  *    a fixed phrase (notes, an overlap, a chord, note-offs, the release tail) and is reduced to a
  *    64-bit FNV-1a hash of its output samples, compared with GOLDEN_FILE (tests/golden.txt).
  *    Every render runs in its own fork()ed child of a process that never touched the DSP state, so
@@ -163,7 +164,7 @@ static void phrase(track_t *t, uint32_t base)
 }
 
 /* ------------------------------------------------------------- jobs --- */
-enum { J_PRESET, J_MODE, J_SENDS, J_DRUMS, J_SONG, J_CPU, J_CHECK, J_SLICER };
+enum { J_PRESET, J_MODE, J_SENDS, J_DRUMS, J_SONG, J_CPU, J_CHECK, J_SLICER, J_COLOR };
 typedef struct {
     char name[64];
     uint8_t kind, e, pi, arg, cpu_notes;
@@ -243,6 +244,20 @@ static void job_slicer(const job_t *j)
     t->p[P_AMODE] = 0;
     for (i = 0; i < 4u; i++)
         t->p[P_SLCR + i] = S[j->arg][i];
+    phrase(t, 60);
+}
+
+/* the COLOR on the phrase: arg = the type (color.c CO_PHASR .. CO_RING), each with its own AMT / RATE */
+static void job_color(const job_t *j)
+{
+    static const int16_t C[5][2] = {{0, 0}, {100, 60}, {110, 50}, {80, 0}, {100, 64}};
+    track_t *t = &trk[0];
+    host_tracks_init();
+    host_preset(t, j->e, j->pi);
+    t->p[P_AMODE] = 0;
+    t->p[P_COLOR] = j->arg;
+    t->p[P_CAMT] = C[j->arg][0];
+    t->p[P_CRATE] = C[j->arg][1];
     phrase(t, 60);
 }
 
@@ -370,6 +385,9 @@ static int run_job_body(job_t *j)
         break;
     case J_SLICER:
         job_slicer(j);
+        break;
+    case J_COLOR:
+        job_color(j);
         break;
     case J_CPU:
         job_cpu(j);
@@ -806,6 +824,16 @@ int main(int argc, char **argv)
         j = add(J_SLICER, "slicer/stut/DIGITAL_RHODES");
         j->e = 1, j->pi = 0, j->arg = 1;
         add(J_SONG, "slicer/song_gate_stut")->arg = 1;
+    }
+    {   /* the COLOR, each type on the ANALOG DARK STR pad */
+        static const char *const CN[5] = {"", "phasr", "wah", "fold", "ring"};
+        slug(s, ENGINES[0]->presets[14].name, sizeof s);
+        for (i = 1; i < 5u; i++) {
+            job_t *j;
+            snprintf(name, sizeof name, "color/%s/ANALOG_%s", CN[i], s);
+            j = add(J_COLOR, name);
+            j->e = 0, j->pi = 14, j->arg = (uint8_t)i;
+        }
     }
     g1 = nj;
     {   /* determinism: the first preset render once more */

@@ -291,7 +291,7 @@ static void plk_open(uint32_t fam)                      /* ENV LFO FX EDIT insid
 {
     open_family(fam);
     if (!ui.plk)
-        ui_message(is_drum(TSEL) ? "P-LOCK: SLICER" : "P-LOCK: HOLD A STEP");
+        ui_message(is_drum(TSEL) ? "P-LOCK: SLICER, COLOR" : "P-LOCK: HOLD A STEP");
     ui.plk = 1;
     ui.force = 1;
 }

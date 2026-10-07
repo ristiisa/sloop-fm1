@@ -21,6 +21,7 @@ SLOOP is free and open source (GPL-3.0), based on [Felucca](https://github.com/h
 - **ACID.** A DICE style (EDIT + **ALGORITHM**): on a synth track each roll is a new 303 line — notes in the key, accents, slides, ties — after the TB-3PO generator; on the drum track, acid house. See [EDIT — erase](#edit--erase).
 - **GRIDS.** The drum screen's **map** page: four knobs — **X**, **Y**, **DENSITY**, **CHAOS** — move through a map of 25 drum patterns, and the kick, snare and hat follow while you turn, morphing from one groove into the next; the result is written into the pattern (saved, editable). After Grids by Émilie Gillet. See [GRIDS — the drum map](#grids--the-drum-map).
 - **Punch-in LATCH.** HOME menu → **PUNCH**: **LATCH** — FX + a white key switches its effect on and it stays with both hands free; the same key switches it off, another key changes it, STOP ends it. FX stays lit and the headers show the effect while it is on. FILL (the black keys) is still held. After majnikool. See [FX — punch](#fx--punch).
+- **COLOR: a track's own effect.** FX → **COLOR** (the third FX page): **TYPE** PHASR (a phaser), WAH (an auto-wah that opens as you play louder), FOLD (a wavefolder) or RING (a ring modulator), **AMT** and **RATE** — on each synth track and the drum track, before the slicer and the sends; a step can lock it. See [COLOR](#color--a-tracks-insert-effect).
 - **Two new drum kits, PEAKS and PEAKS FM** (kits 38 and 39: saved projects keep their kits), made from the drum models of Peaks (Émilie Gillet, MIT): the 808-style bass drum, snare and hi-hat, and the sine FM drum, each sound tuned per lane (pitch, decay, tone, FM amount) and level-matched. See [Drum kits](#drum-kits).
 - **Inverted screen.** HOME → COLOR: **INV BW** and **INV GRN** turn the panel into its negative — a white screen with dark text, much brighter on a dim panel (the track colours invert too).
 - **Room for more.** The firmware is 53 KB smaller — the large font is drawn from the small one, the pitch table is one octave — with the screen and the sound exactly as before.
@@ -299,7 +300,7 @@ A step can play with its own value of a sound parameter (Elektron's parameter lo
 4. **No step held:** the knobs change the track's own sound, as on the page.
 5. **A step held + OCT−:** its locks go. **SEQ:** the steps again (still locked open); **HOME:** let go.
 
-- What locks: ENV (ATK, DEC, SUS, REL, the ENV destinations), LFO and its destinations, the FX sends (DST, CHO, DLY, REV), the SLICER, EDIT 1 and 2 (the engine's parameters), GLIDE, DTUNE and PAN. Not the pattern, the arp, the key, the voice mode, the level or MUTE (*NO LOCK HERE*). On the drum track: its SLICER (FX twice).
+- What locks: ENV (ATK, DEC, SUS, REL, the ENV destinations), LFO and its destinations, the FX sends (DST, CHO, DLY, REV), the SLICER, the COLOR, EDIT 1 and 2 (the engine's parameters), GLIDE, DTUNE and PAN. Not the pattern, the arp, the key, the voice mode, the level or MUTE (*NO LOCK HERE*). On the drum track: its SLICER (FX twice) and its COLOR (FX three times).
 - Up to 8 locks a step and 56 in a project: *LOCKS FULL* when there is no room.
 - Turning a knob while a locked step plays changes the track's own value: you hear it from the next step on, and the lock stays. What is saved (projects, sections, the autosave) and what the editor shows are always the track's own values, with the locks beside them.
 - Locks go with their steps: EDIT SHIFT and LENGTH ×2 move and copy them, undo / redo bring them back, a step cleared (or erased to nothing) loses them, clearing the track clears them. Song sections each have their own. A sound or engine changed keeps them (an EDIT lock is a value of the engine: another engine plays it within its own range).
@@ -442,7 +443,23 @@ The protocol is documented in [web/EDITOR_PROTOCOL.md](web/EDITOR_PROTOCOL.md) (
 
 ## Sound design pages
 
-The full Felucca engine is underneath: nine synthesis engines (analog, 4-op FM, phase distortion, lo-fi chip, sampler, formant voice, three-oscillator, tonewheel organ, granular), envelopes (with a pitch punch for the 808s), LFO, arpeggiator, scales and chords, glide and voice modes, per-track drive and slicer, chorus / delay / reverb sends (a stereo chorus, a tempo delay, a stereo reverb built as a feedback delay network: dense, no metallic ring), 32 user presets, 4 projects.
+The full Felucca engine is underneath: nine synthesis engines (analog, 4-op FM, phase distortion, lo-fi chip, sampler, formant voice, three-oscillator, tonewheel organ, granular), envelopes (with a pitch punch for the 808s), LFO, arpeggiator, scales and chords, glide and voice modes, per-track drive, slicer and COLOR, chorus / delay / reverb sends (a stereo chorus, a tempo delay, a stereo reverb built as a feedback delay network: dense, no metallic ring), 32 user presets, 4 projects.
+
+**The FX pages** (tap FX, again for the next): **FX** — the track's DST (drive) and its CHO, DLY and REV sends · **SLICER** — a tempo-synced gate / stutter · **COLOR** — the track's insert effect, below · **DLY** and **REV/CHO** — the shared delay, reverb and chorus. On the drum track: SLICER, COLOR and the shared ones.
+
+### COLOR — a track's insert effect
+
+FX → **COLOR**: one effect on the track's own sound, after the drive (DST) and before the SLICER, the level, the pan and the sends (the delay and the reverb hear it). Every synth track and the drum track has its own. It is part of the sound: a factory preset turns it OFF, a user preset brings its own; it is saved with the project and the sections, and a step can lock all three knobs ([P-LOCK](#p-lock--a-steps-own-sound)) — a ring-modulated hit, one folded bass note.
+
+| TYPE | What it does | AMT | RATE |
+| --- | --- | --- | --- |
+| **OFF** | nothing (the default; costs nothing) | — | — |
+| **PHASR** | phaser: four all-pass stages swept 350 Hz – 4.2 kHz by a sine LFO, mixed with the dry sound — two notches that sweep | 0–50 %: the notches deepen; above, feedback (a sharper, ringing sweep) | the LFO, 0.05–40 Hz (as the LFO page's RATE) |
+| **WAH** | auto-wah: a resonant band-pass whose frequency follows how loud the track plays (220 Hz quiet … 4.2 kHz loud; fast attack, ~45 ms release) | the wet mix and the resonance | the sensitivity: how far a loud note opens it |
+| **FOLD** | wavefolder: the louder the sound, the more it folds back on itself (round corners, odd harmonics); at 0 a gentle saturation | the drive, 1× – 16× | 0: still; above, an LFO (0.05–40 Hz) moves the drive ±50 % |
+| **RING** | ring modulator: the sound times a sine — sum and difference tones, bells and metal | the mix (100 %: only the ring tones) | the sine's pitch as a MIDI note: 0 = 8 Hz (a tremolo), 60 = C4 262 Hz, 127 = 12.5 kHz |
+
+All four are fixed point and cheap (one pass a sample, the settings read once a block); OFF skips it completely. When the track falls silent the effect rings out and rests.
 
 ## MIDI keyboards
 

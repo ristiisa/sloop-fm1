@@ -140,6 +140,9 @@ int UI_TEST_MAIN(int argc, char **argv)
     open_family(FAM_ENV); ui.force = 1; ui.hot_col = 1; ui.hot_t = 30; frame(); ppm("page-env");
     open_family(FAM_EDIT); ui.force = 1; frame(); ppm("page-edit");
     open_family(FAM_FX); ui.force = 1; frame(); ppm("page-fx");
+    open_family(FAM_FX); open_family(FAM_FX); TSEL->p[P_COLOR] = CO_PHASR; ui.force = 1; frame(); ppm("page-color");
+    check(cur_page()->id[0] == P_COLOR, "FX three times: the COLOR page (TYPE AMT RATE)");
+    TSEL->p[P_COLOR] = CO_OFF;
     open_family(FAM_SEQ); ui.force = 1; frame(); ppm("page-step");
     open_family(FAM_GLO); ui.force = 1; frame(); ppm("page-global");
     open_family(FAM_GLO); ui.force = 1; frame(); ppm("page-master");

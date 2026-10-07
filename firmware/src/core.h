@@ -57,6 +57,7 @@ enum {                          /* per-track parameters */
     P_AROT, P_ASYNC, P_ARHYM, P_ADEJA,         /* arp: rotate, restart, rhythm masks, deja vu (seq.c) */
     P_ASHIFT, P_ACYC,                          /* arp: degrees a cycle, cycles before it starts over (seq.c) */
     P_TURN,                                    /* the pattern rewrites itself as it plays, 0..100 % (seq.c turing) */
+    P_COLOR, P_CAMT, P_CRATE,                  /* COLOR insert: PHASR / WAH / FOLD / RING, amount, rate (color.c) */
     P_E0, P_E1, P_E2, P_E3, P_E4, P_E5, P_E6, P_E7,
     P_COUNT
 };

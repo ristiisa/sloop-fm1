@@ -28,6 +28,7 @@ static const char *const N_SYNC[] = {"INT", "USB", "TRS"};   /* G_SYNC: the temp
 static const char *const N_GO[] = {"--", "GO"};
 static const char *const N_SLCR[] = {"OFF", "GATE", "STUT"};             /* SL_OFF .. SL_STUT (slicer.c) */
 static const char *const N_SLDIV[] = {"1/8", "1/16", "1/32", "8T", "16T", "32T"};   /* SL_DEN */
+static const char *const N_COLOR[] = {"OFF", "PHASR", "WAH", "FOLD", "RING"};   /* CO_OFF .. CO_RING (color.c) */
 static const char *const N_CHORD[] = {"OFF", "TRIAD", "7TH", "9TH", "SUS4", "POWER"};   /* seq.c CHORD_DEG */
 static const char *const N_ROLL[] = {"1/8", "1/16", "1/32", "32T", "1/64"};   /* seq.c ROLL_DEN */
 static const char *const N_ENGNAME[] = {"ANALOG", "DIGITAL", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL", "GRAIN",
@@ -101,6 +102,9 @@ static const param_desc_t TP[P_COUNT] = {
     [P_ASHIFT] = {"SHIFT", F_INT, -7, 7, 0, N_ASHIFT, 0},   /* degrees of the scale a cycle (CHR: semitones) */
     [P_ACYC] = PD("CYC", F_INT, 2, 8, 4),
     [P_TURN] = PD("TURN", F_PCT, 0, 100, 0),        /* the chance a step is rewritten as it comes round */
+    [P_COLOR] = PE("TYPE", N_COLOR, 0),
+    [P_CAMT] = PD("AMT", F_PCT, 0, 127, 64),
+    [P_CRATE] = PD("RATE", F_INT, 0, 127, 40),      /* LFO / sensitivity / carrier note, by TYPE (color.c) */
 };
 /* a preset's extra parameters (preset_t.x) into p, each clamped to its range */
 static void preset_extras(int16_t *p, const preset_t *pr)
@@ -301,6 +305,7 @@ static const page_t PAGES[] = {
     {"LFO DEST", FAM_LFO, SC_TRACK, GR_NONE, {P_LD_PIT, P_LD_FLT, P_LD_SHP, P_LD_AMP}},
     {"FX", FAM_FX, SC_TRACK, GR_FX, {P_DIST, P_CHOR, P_DLY, P_REV}},
     {"SLICER", FAM_FX, SC_TRACK, GR_SLCR, {P_SLCR, P_SLPAT, P_SLRATE, P_SLDEPTH}},   /* drum track too */
+    {"COLOR", FAM_FX, SC_TRACK, GR_NONE, {P_COLOR, P_CAMT, P_CRATE, 0xFF}},          /* drum track too */
     {"DLY", FAM_FX, SC_GLOBAL, GR_NONE, {G_DTIME, G_DFDBK, G_DCOLOR, G_DMIX}},
     {"REV/CHO", FAM_FX, SC_GLOBAL, GR_NONE, {G_RSIZE, G_RDAMP, G_CRATE, G_CDEPTH}},
     {"SCL", FAM_SCL, SC_TRACK, GR_SCALE, {P_ROOT, P_SCALE, P_QUANT, P_CHORD}},
@@ -332,13 +337,14 @@ static const page_t PAGES[] = {
 #define NPAGES (sizeof(PAGES) / sizeof(PAGES[0]))
 
 /* the drum track has no sound of its own: it uses the global pages (not the preset
- * pages, nor TOOLS > INIT: page_desc), STEP, PATTERN, SLICER and TRACKS; every other page
+ * pages, nor TOOLS > INIT: page_desc), STEP, PATTERN, SLICER, COLOR and TRACKS; every other page
  * shows "DRUM TRACK" */
 static int page_for_drum(const page_t *pg)
 {
     if (pg->scope == SC_GLOBAL)
         return pg->graph != GR_BROWSE && pg->graph != GR_USER;
-    return pg->scope != SC_ENGINE && (pg->scope != SC_TRACK || pg->fam == FAM_SEQ || pg->graph == GR_SLCR);
+    return pg->scope != SC_ENGINE && (pg->scope != SC_TRACK || pg->fam == FAM_SEQ || pg->graph == GR_SLCR ||
+                                      pg->id[0] == P_COLOR);
 }
 
 static const param_desc_t *page_desc(const page_t *pg, uint32_t slot, int16_t **valp)
