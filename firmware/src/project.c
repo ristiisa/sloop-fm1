@@ -9,7 +9,7 @@
  * Formats: 5 ("FUN5", written): today's P_COUNT / G_COUNT, 10-byte steps (levels and ratchets; the
  * drum track: 16 lanes), then a condition per step of every track (seq.c CN_*) and the parameter locks
  * (PLK_MAX, at the end: checked on load, plk_apply). Read and converted: 4 ("FUN4", SLOOP 2.0..2.3:
- * PROJ_NP_V4 parameters, mapped by id up to P_CHORD, the parameters added since their defaults, every
+ * PROJ_NP_V4 parameters, mapped by id up to P_CHORD, PROJ_NG_V4 globals, the ones added since their defaults, every
  * condition ALWAYS, no locks), 3 ("FUN3", SLOOP 1.x: 8-byte steps, the
  * drum track's notes become its lanes, the swings x 0.8 for the MPC scale), 2 ("FUN2") and 1 ("FUN1"),
  * which held PROJ_NP_V2 parameters per track, mapped by count as user presets are (the first
@@ -25,6 +25,7 @@
 #define PROJ_MAGIC_V2 0x46554E32u              /* "FUN2": four tracks, PROJ_NP_V2 parameters; read only */
 #define PROJ_MAGIC_V1 0x46554E31u              /* "FUN1": one instrument; loads into track 1 */
 #define PROJ_NP_V4 58u                         /* P_COUNT of format 4 (P_E0 was 50) */
+#define PROJ_NG_V4 32u                         /* G_COUNT of format 4 */
 #define PROJ_NP_V3 57u                         /* P_COUNT of format 3 (P_E0 was 49) */
 #define PROJ_NG_V3 27u                         /* G_COUNT of formats 1..3 */
 #define PROJ_NP_V2 53u                         /* P_COUNT of formats 1 and 2 (P_E0 was 45) */
@@ -56,7 +57,7 @@ typedef struct {                               /* a track of format 4, read only
 } proj_trk_v4_t;
 typedef struct {                               /* format 4 (SLOOP 2.0..2.3), read only */
     uint32_t magic, size;
-    int16_t g[G_COUNT];
+    int16_t g[PROJ_NG_V4];
     uint8_t sel, rsv[3];
     proj_trk_v4_t t[NTRK];
     uint32_t sum;
@@ -94,7 +95,7 @@ typedef struct {                               /* format 1 (until 0.5 beta), rea
 } project_v1_t;
 _Static_assert(sizeof(project_v2_t) == 2552u && sizeof(project_v1_t) == 688u && sizeof(project_v3_t) == 2584u &&
                sizeof(project_v4_t) == 3112u, "formats 1 .. 4 as they were stored");
-_Static_assert(sizeof(plk_t) == 4u && sizeof(project_t) == 3680u, "format 5");
+_Static_assert(sizeof(plk_t) == 4u && sizeof(project_t) == 3684u, "format 5");
 project_t proj_slot[4] __attribute__((section(".noinit")));
 
 static uint32_t proj_hash(const void *p, uint32_t n)   /* FNV-1a over n bytes */
@@ -184,7 +185,8 @@ static int proj_from_v4(project_t *q, const project_v4_t *v4, int n)
     memset(q, 0, sizeof *q);
     q->magic = PROJ_MAGIC;
     q->size = sizeof *q;
-    memcpy(q->g, v4->g, sizeof q->g);
+    for (i = 0; i < G_COUNT; i++)
+        q->g[i] = i < PROJ_NG_V4 ? v4->g[i] : GP[i].def;
     q->sel = v4->sel;
     for (i = 0; i < NTRK; i++) {
         for (k = 0; k < P_E0; k++)

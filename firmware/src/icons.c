@@ -36,6 +36,7 @@ static const icon_map_t ICON_MAP[] = {
     {"DIV", ICON_DIVISION}, {"ACC", ICON_ACCENT}, {"HITS", ICON_STEPS}, {"STEPS", ICON_LENGTH},
     {"RAT", ICON_DIVISION}, {"ROT", ICON_PHASE}, {"RHYM", ICON_DRUM}, {"DEJA", ICON_LOOP},   /* (SYNC: global) */
     {"CYC", ICON_LOOP}, {"TURN", ICON_LOOP},   /* (SHIFT: the formant engine's, below) */
+    {"EVOL", ICON_LOOP}, {"BACK", ICON_LOOP},  /* GLO > JAM (seq.c evolve) */
     /* fx sends, voice */
     {"DST", ICON_DIST}, {"CHO", ICON_CHORUS}, {"DLY", ICON_DELAY}, {"REV", ICON_REVERB},
     {"VCE", ICON_VOICE}, {"GLD", ICON_GLIDE}, {"GLMOD", ICON_GLIDE}, {"PRIO", ICON_ORDER},

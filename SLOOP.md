@@ -17,6 +17,7 @@ SLOOP is free and open source (GPL-3.0), based on [Felucca](https://github.com/h
 - **Parameter locks.** A step can have its own sound: lock SEQ open (SEQ + HOME), tap ENV, LFO, FX or EDIT, hold steps and turn a knob (8 locks a step, 56 a project; OCT− with steps held clears them). See [P-LOCK](#p-lock--a-steps-own-sound).
 - **MUTATE.** EDIT + **KNOB 4**: each click right varies the pattern a little, left takes it back.
 - **TURN: a pattern that rewrites itself.** SEQ → PATTERN 2 → **TURN** (0–100 %): while it plays, each step is rewritten with that chance as it comes round — new notes in the scale and the register of the pattern, drum hits that come, go and change sound — and stays so; back at 0 you keep what you hear (after the Turing Machine and Marbles). See [TURN](#turn--a-pattern-that-rewrites-itself).
+- **EVOLVE: patterns that change by themselves, and come back.** GLO → **JAM**: **EVOL** gives every track you hear a MUTATE pass every 1, 2, 4 or 8 bars while it plays; **BACK** puts them back as they were every 4, 8 or 16 bars. See [EVOLVE](#evolve--patterns-that-change-by-themselves).
 - **DICE.** EDIT + **PRESETS**: each click right rolls a new pattern for the selected track — a groove on the drum track, a bass line, a melody or chords in the song's key on a synth track — in a style (EDIT + **ALGORITHM**: HOUSE, TRAP, BOOM BAP, BREAK, AMAPIANO, DNB, RANDOM, or KIT: the style of the drum kit); left goes back through the rolls to your own pattern. See [EDIT — erase](#edit--erase).
 - **ACID.** A DICE style (EDIT + **ALGORITHM**): on a synth track each roll is a new 303 line — notes in the key, accents, slides, ties — after the TB-3PO generator; on the drum track, acid house. See [EDIT — erase](#edit--erase).
 - **GRIDS.** The drum screen's **map** page: four knobs — **X**, **Y**, **DENSITY**, **CHAOS** — move through a map of 25 drum patterns, and the kick, snare and hat follow while you turn, morphing from one groove into the next; the result is written into the pattern (saved, editable). After Grids by Émilie Gillet. See [GRIDS — the drum map](#grids--the-drum-map).
@@ -291,6 +292,16 @@ SEQ tapped (twice: STEP, PATTERN, **PATTERN 2**) → **KNOB 1 TURN**, 0–100 % 
 - Not while the track records (REC). TURN belongs to the pattern: a preset keeps it, it is saved with the project and the sections, and a step cannot lock it.
 - **Undo:** the changes TURN makes are no undo steps, but turning TURN up from 0 keeps the pattern as it was: TURN back to 0, then EDIT + OCT− brings it back (OCT+: the turned one again). Turning TURN down and up again keeps that same pattern to go back to — until you change the pattern some other way (an edit, a recording, a project load), after which TURN up keeps the pattern of then.
 
+### EVOLVE — patterns that change by themselves
+
+GLO tapped (GLOBAL, MASTER, SYSTEM, DRUMS, **JAM**) → **KNOB 2 EVOL**: `OFF` (default), `1BAR`, `2BAR`, `4BAR`, `8BAR`; **KNOB 3 BACK**: `NEVER` (default), `4BAR`, `8BAR`, `16BAR`. For the whole project (saved with it).
+
+- **EVOL:** while the transport plays, on every 1st, 2nd, 4th or 8th bar (counted from PLAY, or from the start of a song section) each track that has notes or hits and is heard — not muted, not silenced by a solo, not being recorded — gets one [MUTATE](#edit--erase) pass, as EDIT + KNOB 4 one click right: in the key, the kicks on the beats kept, at most 4 steps changed; the step conditions and parameter locks stay on their steps. Mute a track to keep it as it is; the others go on changing. EVOL back to `OFF` keeps what you hear.
+- **BACK:** every 4th, 8th or 16th bar the tracks that evolved come back exactly as they were at their first pass (after PLAY, or after EVOL went on): a phrase that wanders and comes home. When EVOL is as long as BACK or longer, the pass due on that bar starts again from there — each time a fresh variation of your pattern (EVOL `4BAR`, BACK `4BAR`: every 4 bars another take on the same pattern); otherwise that bar plays the pattern as you made it.
+- **Your edits count:** change a track while it evolves — a step, a recording, DICE, a touch of GRIDS, an undo, the web editor — and that is its new starting point: BACK brings your version, not the old one. STOP and PLAY again (or EVOL off and on) starts afresh from what plays then. A track with TURN up is rewritten as it plays as well, and BACK still brings it back.
+- **Undo:** the passes are no undo steps (and EDIT + KNOB 4 left does not take them back). The first pass keeps the selected track as it was (or, if it does not evolve, the first track that does): after STOP, EDIT + OCT− brings it back as it was before EVOLVE started, OCT+ the evolved one. That stays the step to go back to over STOP and PLAY, until something else takes the undo (an edit, a recording…). The other tracks: BACK while playing.
+- Memory: one copy of each track's steps (2.5 KB) holds the patterns BACK returns to.
+
 ### P-LOCK — a step's own sound
 
 A step can play with its own value of a sound parameter (Elektron's parameter locks): the filter opened on one note, a longer decay on one bass note, more reverb on the last hit of the bar. While that step plays — and the tied steps after it — the track plays with the locked value; from the next step on, with its own again.
@@ -321,10 +332,11 @@ Changing a sound (PRESETS, a user preset) never changes the key, the chord mode,
 - White keys **1–4 mute** tracks 1–4 (a muted track fades out in a few ms and plays no new notes; its pattern runs on in time), keys **5–8 solo** them (several solos add up). The tiles show what is heard.
 - The last white key (**G5**): **tap tempo** (two taps or more).
 - **KNOB 1–4: the levels** of tracks 1–4.
+- **Tapped:** the GLO pages — GLOBAL, MASTER, SYSTEM, DRUMS, and **JAM**: EVOL and BACK, the patterns evolving by themselves ([EVOLVE](#evolve--patterns-that-change-by-themselves)).
 
 ## Undo, clear, save, autosave
 
-- **Undo / redo:** hold EDIT, press OCT− / OCT+. One level: the last recording pass, erase, clear, step or pattern edit (with the step's parameter locks), a touch of a GRIDS knob, or the pattern from before TURN went up; redo takes it back again.
+- **Undo / redo:** hold EDIT, press OCT− / OCT+. One level: the last recording pass, erase, clear, step or pattern edit (with the step's parameter locks), a touch of a GRIDS knob, the pattern from before TURN went up, or the one from before EVOLVE started; redo takes it back again.
 - **Clear a track:** hold REC. After 0.7 s the press is cancelled and a ring fills; keep holding ~1.3 s more and the selected track is cleared (*TRACK 2 CLEARED*). Let go before: nothing. Undo brings it back.
 - **Save:** SAVE + keys 5–8 save the loop into section / project A–D (= SLOT 1–4); SAVE → PROJECT has SLOT, LOAD, SAVE too.
 - **Autosave:** when the transport is stopped and you have not touched anything for 2.5 s (at most every 20 s), the working project is kept in flash; at power-on SLOOP comes back exactly as you left it.

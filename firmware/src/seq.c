@@ -487,9 +487,11 @@ static struct {
 } undo;
 static plk_t undo_lk[PLK_MAX] __attribute__((section(".pool")));   /* .. and its locks */
 static uint32_t undo_sess = 1;           /* UI sessions (seq.c: recording passes use the track's pass) */
+static volatile uint8_t ev_new[NTRK];    /* EVOLVE: the track was edited since (a new starting point) */
 static void undo_mark(const track_t *t, uint32_t sess)
 {
     uint32_t i = trk_index(t);
+    ev_new[i] = 1;
     if (undo.valid && !undo.undone && undo.trk == i && undo.sess == sess)
         return;                                          /* (this session is marked already) */
     memcpy(undo.st, t->step, sizeof undo.st);
@@ -943,6 +945,91 @@ static __attribute__((noinline)) void turing_step(track_t *t, uint32_t idx)
         for (k = 0; k < n; k++)
             s->note[k] = c[k];
     }
+}
+
+/* ----------------------------------------------------------- evolve --- */
+/* GLO > JAM: EVOL (OFF, every 1, 2, 4, 8 bars) and BACK (NEVER, every 4, 8, 16 bars). While the transport
+ * plays, on every EVOL-th bar (bars counted from PLAY or a section's start) each track that is heard (not
+ * muted, not soloed away), is not recording and has notes / hits within LEN gets one MUTATE pass (mutate:
+ * in the scale, the kicks on the beats kept, at most MUT_STEPS steps; conditions and locks stay with their
+ * steps). The first pass on a track keeps its steps (ev_snap): on every BACK-th bar the tracks are put back
+ * as they were; when EVOL is as long as BACK or longer, the pass due on that bar starts again from there (a
+ * new variation of the pattern each time), else that bar plays it as it was. A new snapshot after PLAY, a
+ * section, EVOL turned on, or an edit of the track (anything that takes an undo step: DICE, GRIDS, a
+ * recording, a step edit, an undo; or another change, the editor's, a load, on a track TURN is not
+ * rewriting). Undo: the passes are no undo steps (nor MUTATE ones: EDIT + KNOB 4 left does not take them
+ * back); the first pass of a run takes the undo step of its track (the selected one if it evolves, else
+ * the first one that does), and keeps it over STOP and PLAY until something else changes the undo: after
+ * STOP, EDIT + OCT- brings that track back as it was before EVOLVE. The UI runs it (main loop), each frame:
+ * the bar is the audio ISR's beat counter, a new start its ev_reset. */
+static step_t ev_snap[NTRK][NSTEP] __attribute__((section(".pool")));   /* each track at its first pass */
+static uint8_t ev_ok;                    /* ev_snap holds track i: bit i */
+static uint8_t ev_run, ev_undo;          /* a run (playing, EVOL on); its undo step taken */
+static uint32_t ev_bar, ev_gen;          /* the bar seen last, the ev_reset of the run */
+static volatile uint32_t ev_reset;       /* seq_reset_tracks: PLAY, a section (bar 0 again) */
+static uint32_t ev_sum[NTRK];            /* each track as the last pass or BACK left it */
+static uint32_t ev_usess;                /* the undo session a first pass took (0: none) */
+
+static void evolve_bar(uint32_t b)       /* bar b (> 0) of the run begins */
+{
+    uint32_t e = (uint32_t)song.g[G_EVOL], k = (uint32_t)song.g[G_EVBK], n = 1u << (e - 1u), m = k ? 2u << k : 0u, j, i, l, s;
+    int back = m && !(b % m), pass = !(b % n) && (!back || n >= m);
+    for (j = 0; j < NTRK; j++) {
+        track_t *t = &trk[i = (song.sel + j) % NTRK];    /* (the selected track first: it takes the undo step) */
+        if ((song.rec >> i) & 1u)
+            continue;
+        if (ev_new[i] || (!t->tu_arm && pattern_sum(t) != ev_sum[i])) {
+            ev_new[i] = 0;
+            ev_ok &= (uint8_t)~(1u << i);                 /* edited: a new starting point */
+        }
+        if (back && ((ev_ok >> i) & 1u)) {
+            fm1_irq_off();
+            memcpy(t->step, ev_snap[i], sizeof t->step);
+            fm1_irq_on();
+            ev_sum[i] = pattern_sum(t);
+        }
+        for (s = 0, l = 0; pass && !trk_silent(t) && l < trk_len(t) && !s; l++)
+            s = (uint32_t)step_sounds(t, l);
+        if (!s)
+            continue;
+        if (!((ev_ok >> i) & 1u)) {
+            fm1_irq_off();
+            memcpy(ev_snap[i], t->step, sizeof t->step);
+            fm1_irq_on();
+            ev_ok |= (uint8_t)(1u << i);
+        }
+        if (!ev_undo) {                                   /* the run's first pass: the undo step, unless it holds */
+            ev_undo = 1;
+            if (!undo.valid || undo.undone || undo.sess != ev_usess || pattern_sum(&trk[undo.trk % NTRK]) != ev_sum[undo.trk % NTRK])
+                undo_mark(t, ev_usess = (undo_sess += 4u) | 3u);
+            ev_new[i] = 0;
+        }
+        fm1_irq_off();
+        mut.n = 0;                                        /* (no MUTATE step: not turned back by KNOB 4) */
+        mutate(t);
+        mut.n = 0;
+        fm1_irq_on();
+        ev_sum[i] = pattern_sum(t);
+    }
+}
+/* the UI, each frame: the bars begun since */
+static void evolve_tick(void)
+{
+    uint32_t r = ev_reset, b = clk_beat >> 2;
+    if (!song.playing || !song.g[G_EVOL]) {
+        ev_run = 0;
+        return;
+    }
+    if (!ev_run || r != ev_gen || b < ev_bar) {         /* PLAY, a section, EVOL on: a new run */
+        ev_run = 1;
+        ev_undo = 0;
+        ev_ok = 0;
+        ev_gen = r;
+        ev_bar = b;
+        return;
+    }
+    while (ev_bar < b)
+        evolve_bar(++ev_bar);
 }
 
 #include "dice.c"                       /* DICE: a new pattern in a style (EDIT + PRESETS) */
@@ -2266,6 +2353,7 @@ static void seq_reset_tracks(uint32_t pos)
     live_bar = 0xFFFFFFFFu;                        /* (bar 0 is a new bar: SONG REC can start on it) */
 #endif
     click_last = SEQ_NONE;
+    ev_reset++;                                    /* (EVOLVE: bar 0, a new run) */
     song.tick = 0;
     song.playing = 1;
     slicer_start(pos);                             /* slicer.c: its step 0 with the sequencer's */

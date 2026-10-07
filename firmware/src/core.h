@@ -73,6 +73,7 @@ enum {                          /* global parameters */
     G_DUST, G_DUCK, G_FILT,     /* the master bus: lo-fi / vinyl, the kick ducking the parts, the DJ filter (fx.c) */
     G_ROLL,                     /* note repeat rate (ARP + key, seq.c) */
     G_NEWPRJ,                   /* TOOLS > NEW: a new project (GO) */
+    G_EVOL, G_EVBK,             /* EVOLVE: a mutate pass every 1..8 bars, back every 4..16 (seq.c evolve) */
     G_COUNT
 };
 
