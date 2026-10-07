@@ -812,6 +812,8 @@ static int mutate_back(track_t *t)                /* the last pass undone: 1, 0 
     return 1;
 }
 
+#include "dice.c"                        /* DICE: a new pattern in a style (EDIT + PRESETS) */
+
 /* ------------------------------------------------------- recording --- */
 /* key to ear, in samples: the key's debounce (~3 ms) and the audio out buffer (HALF_FRAMES to
  * 2 x HALF_FRAMES, ~9 ms on average). A note played in time with what the player hears reaches

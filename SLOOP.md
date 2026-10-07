@@ -14,6 +14,7 @@ SLOOP is free and open source (GPL-3.0), based on [Felucca](https://github.com/h
 - **A deeper arpeggiator.** 14 modes (CONV, DIVG, THMB, PNKY, DRNK, SHUF, OCTI, CHRD…), accents, euclidean HITS of STEPS, ratchets, and on ARP 4: ROT, SYNC (note / bar / free), 15 rhythms and DEJA (randomness that repeats). See [ARP pages](#arp-pages--the-arpeggiator).
 - **Parameter locks.** A step can have its own sound: lock SEQ open (SEQ + HOME), tap ENV, LFO, FX or EDIT, hold steps and turn a knob (8 locks a step, 56 a project; OCT− with steps held clears them). See [P-LOCK](#p-lock--a-steps-own-sound).
 - **MUTATE.** EDIT + **KNOB 4**: each click right varies the pattern a little, left takes it back.
+- **DICE.** EDIT + **PRESETS**: each click right rolls a new pattern for the selected track — a groove on the drum track, a bass line, a melody or chords in the song's key on a synth track — in a style (EDIT + **ALGORITHM**: HOUSE, TRAP, BOOM BAP, BREAK, AMAPIANO, DNB, RANDOM, or KIT: the style of the drum kit); left goes back through the rolls to your own pattern. See [EDIT — erase](#edit--erase).
 - **Inverted screen.** HOME → COLOR: **INV BW** and **INV GRN** turn the panel into its negative — a white screen with dark text, much brighter on a dim panel (the track colours invert too).
 
 ### New in 2.3
@@ -123,7 +124,7 @@ The tiles are four rows of four, keys 1–4, 5–8, 9–12, 13–16. To find the
 | Hold | Keys | KNOB 1 · 2 · 3 · 4 | Tap |
 | --- | --- | --- | --- |
 | **FX** — *punch* | white: a punch-in effect while the key is held · black: **FILL** while held | FILTER · DUST · DUCK · — | FX pages |
-| **EDIT** — *erase* | erase that sound / note from the pattern | SHIFT · LENGTH ×2 / ½ · TRANSPOSE · MUTATE | EDIT pages (drums: grid / kit) |
+| **EDIT** — *erase* | erase that sound / note from the pattern | SHIFT · LENGTH ×2 / ½ · TRANSPOSE · MUTATE (PRESETS: DICE, ALGORITHM: its style) | EDIT pages (drums: grid / kit) |
 | **ARP** — *roll* | note repeat on the grid | RATE · — · — · — | ARP pages |
 | **SEQ** — *steps* | steps 1–16 of the page | SOUND / NOTE · DIV · SWING · LENGTH (a step held: SOUND / NOTE · LEVEL · RATCHET · CONDITION) | SEQ pages (drums: grid / kit) |
 | **SCL** — *key* | the key of the song | CHORD · SCALE · KEYS · TRANSPOSE | SCL pages |
@@ -139,6 +140,8 @@ Other controls:
 | hold **REC** | clear the selected track (a ring fills: keep holding ~2 s; let go before and nothing happens) |
 | **SAVE** | on TRACKS: the SONG screen · elsewhere: the SAVE pages |
 | **EDIT + OCT− / OCT+** | undo / redo |
+| **EDIT + PRESETS** | DICE: a new pattern for the selected track (left: the one before) |
+| **EDIT + ALGORITHM** | the DICE style |
 | **ALGORITHM** | select the track (on every page) |
 | **PRESETS** | the selected track's sound, or the drum kit |
 | **SELECT** | tempo (always, even inside a layer) |
@@ -205,7 +208,17 @@ Hold EDIT and press a key: that sound (drums) or that note (synths; with CHORD o
 - **KNOB 2 LENGTH** — right: ×2 (the pattern copied after itself, up to 64 steps); left: ½.
 - **KNOB 3 TRANSPOSE** — every note a semitone up / down (synth tracks).
 - **KNOB 4 MUTATE** — each click right varies the pattern a little (one *pass*: one or two small changes, at most 4 steps, within LENGTH); each click left takes the last pass back, exactly (*MUTATE 3*: three passes to go back; the last 16 are kept, until something else changes the pattern). Synth tracks: a note moves one degree of the track's scale (a semitone on CHR), a note gets softer or harder (ghost, soft, norm, hard), a ratchet comes or goes, and now and then a note is added on an empty step (in the scale, near the notes around it) or one is taken away; the notes stay within an octave of each other (or the span they already had), ties stay whole. Drum track: ghost hits come and go on the snares and hats the pattern uses (off the beat), a hit moves a step later / earlier, a level changes, a hat gets a ratchet; the kicks on the beats (steps 1, 5, 9, 13 of every 16) never move.
-- **OCT− undo · OCT+ redo** (the knob turns of one hold count as one change: mutate as much as you like, OCT− brings back the pattern from before the hold).
+- **PRESETS DICE** — each click right rolls a new pattern for the selected track (*DICE TRAP 3*: the style, and three rolls to go back); each click left goes back to the roll before, exactly, and after the first to the pattern you had (the last 16 rolls are kept, until something else changes the pattern, its LENGTH, the key, the chord mode or the voice mode). A roll writes every step up to LENGTH (bar by bar, repeated with small changes, a fill at the end of every 2nd / 4th bar), with levels, ratchets, ties and slides; the steps there lose their conditions and locks, the steps past LENGTH stay. Each roll is one undo.
+- **ALGORITHM picks the style** (*STYLE HOUSE*; not saved): **KIT** (the default: the style of the drum kit — 808, TRAP, DRILL, PHONK → TRAP; 909, HOUSE, TECHNO, DISCO, GARAGE… → HOUSE; BOOMBAP, LO-FI, JAZZ → BOOM BAP; the acoustic kits, VINTAGE, ELECTRO → BREAK; JUNGLE → DNB; AMAPIANO, AFRO → AMAPIANO; the others → RANDOM), then:
+  - **HOUSE** — four on the floor, the clap on 2 and 4, open hats (or a ride) off the beat, closed hats or a shaker between, a percussion line. Synths: the bass off the beat with pickups and octave jumps, offbeat chord stabs.
+  - **TRAP** — a sparse kick (now and then the long 808 under the first), snare and clap on 3, hats in 8ths or 16ths with rolls (ratchets ×2–×4, soft). Synths: long sliding 808 notes, melodies in 8ths and 16ths with a few rolls, long chords.
+  - **BOOM BAP** — a lazy kick, the snare on 2 and 4, ghost snares on the off 16ths, 8th hats. Synths: held bass notes, sparse long melodies and chords.
+  - **BREAK** — a breakbeat (amen, funky, think…) with its ghost snares, hats or a ride, an open hat. Synths: syncopated 16ths.
+  - **AMAPIANO** — shaker 16ths, a kick on the beats with a syncopated one, the rim on a turned tresillo, claps (no log drum). Synths: syncopated, sliding bass lines and chords.
+  - **DNB** — two-step: the kick on 1 and the "and" of 3, the snare on 2 and 4, ghosts, 8th / 16th hats or a ride. Synths: long reese notes, held melodies and pads.
+  - **RANDOM** — euclidean kicks, hats and percussion, the snare on the backbeat, on 3 or anywhere.
+- **What a synth track gets:** with CHORD on (and VOICE POLY) chords of the scale on that key — the chord type of SCL KNOB 1 — else a bass line (a bass sound, or a part whose notes are low) or a melody; always in the track's key and scale, over a progression (a chord a bar; half a bar at LENGTH 16 or less), on the 16th grid. The notes stay around the ones the pattern had; an empty part plays where its sound sits — a bass around C2 (or where its keys play: the 808s two octaves down), the rest around C4, with the octave of the keys. A part not on VOICE POLY gets one note a step.
+- **OCT− undo · OCT+ redo** (the knob turns of one hold count as one change: mutate as much as you like, OCT− brings back the pattern from before the hold; a dice roll is a change of its own).
 
 ### ARP — roll (note repeat)
 
@@ -443,7 +456,7 @@ The glow is a short pulse on every scan of the panel (about 900 times a second):
 | Tracks | 3 synth parts (8 voices shared) + drums (16 sounds, 6 voices) |
 | Sounds | 68 presets on 9 engines (browsed by kind, level-matched), 8 sampled sets (CC0), 3 slots for your own samples |
 | Sequencer | 64 steps per track, own length and division each; chords with a level and ratchet per note; drums with a level and ratchet per sound; a condition per step (chance, a:b, FILL, first pass); parameter locks (a step's own sound: 8 a step, 56 a project); ties, slide; MPC swing 50–75 %; one sample-accurate clock for steps, arp, rolls, slicer and song (no drift) |
-| Performance | layers (hold a button: keys and knobs change job): punch-in FX, erase, note repeat, step entry, key / chords, mute / solo / tap tempo |
+| Performance | layers (hold a button: keys and knobs change job): punch-in FX, erase, mutate, dice (a new pattern in 7 styles), note repeat, step entry, key / chords, mute / solo / tap tempo |
 | Drum kits | 37 (5 sampled, 32 synthesised, 16 sounds each) |
 | Effects | 16 punch-in effects; master DUST, DUCK, DJ filter; per track drive, slicer, sends to a stereo chorus, a tempo delay and a stereo reverb; master limiter |
 | Recording | live, quantised as heard (latency-compensated), overdub; records at once while playing; free take sets loop length and tempo, or the tempo set, from the first note or a one-bar count-in |
