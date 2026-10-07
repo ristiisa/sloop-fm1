@@ -34,6 +34,9 @@ static const palette_t PALETTES[] = {
     {"CYAN", {RGB(0, 30, 50), RGB(0, 62, 96), RGB(16, 112, 160), RGB(56, 172, 222), RGB(140, 222, 255)}},
     {"RED", {RGB(52, 8, 8), RGB(100, 18, 14), RGB(170, 36, 26), RGB(226, 64, 48), RGB(255, 112, 92)}},
     {"MONO", {RGB(40, 40, 40), RGB(80, 80, 80), RGB(130, 130, 130), RGB(186, 186, 186), RGB(226, 226, 226)}},
+    /* high contrast, for a dim panel: every step lifted, the top one still short of the white accent */
+    {"HI MONO", {RGB(96, 96, 96), RGB(150, 150, 150), RGB(200, 200, 200), RGB(232, 232, 232), RGB(255, 240, 200)}},
+    {"HI GRN", {RGB(0, 96, 34), RGB(24, 160, 64), RGB(80, 224, 112), RGB(150, 255, 170), RGB(210, 255, 220)}},
 };
 #define NPALETTES (sizeof(PALETTES) / sizeof(PALETTES[0]))
 static uint16_t pal[5];

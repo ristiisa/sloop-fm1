@@ -214,7 +214,7 @@ Hold **HOME**. **PRESETS** moves, **KNOB 1** sets, **OCT+** steps round, **OCTâˆ
 
 | Item | Choices | What it does |
 | --- | --- | --- |
-| **COLOR** | 5 palettes | the screen's colours |
+| **COLOR** | 7 palettes (HI MONO and HI GRN: high contrast, for a dim screen) | the screen's colours |
 | **LOWCUT** | OFF / ON | a low cut for the small built-in speaker |
 | **ZOOM** | OFF / ON | a large readout of the value you turn |
 | **LIGHTS** | OFF / LOW / MID / HIGH | every button glows at that level; what is active stays at full light |
