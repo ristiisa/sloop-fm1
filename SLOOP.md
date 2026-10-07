@@ -22,6 +22,7 @@ SLOOP is free and open source (GPL-3.0), based on [Felucca](https://github.com/h
 - **GRIDS.** The drum screen's **map** page: four knobs — **X**, **Y**, **DENSITY**, **CHAOS** — move through a map of 25 drum patterns, and the kick, snare and hat follow while you turn, morphing from one groove into the next; the result is written into the pattern (saved, editable). After Grids by Émilie Gillet. See [GRIDS — the drum map](#grids--the-drum-map).
 - **Punch-in LATCH.** HOME menu → **PUNCH**: **LATCH** — FX + a white key switches its effect on and it stays with both hands free; the same key switches it off, another key changes it, STOP ends it. FX stays lit and the headers show the effect while it is on. FILL (the black keys) is still held. After majnikool. See [FX — punch](#fx--punch).
 - **Two new drum kits, PEAKS and PEAKS FM** (kits 38 and 39: saved projects keep their kits), made from the drum models of Peaks (Émilie Gillet, MIT): the 808-style bass drum, snare and hi-hat, and the sine FM drum, each sound tuned per lane (pitch, decay, tone, FM amount) and level-matched. See [Drum kits](#drum-kits).
+- **MIDI expression in.** From a keyboard (USB or the MIDI IN jack): **pitch bend** (±2 semitones, or the range your keyboard sets with RPN 0, up to 24), the **mod wheel** (vibrato), the **sustain pedal**, and all sound off / reset controllers / all notes off — so a stuck note is one panic button away (after Felucca 1.0, by ChanceTheMaker). See [MIDI keyboards](#midi-keyboards).
 - **Inverted screen.** HOME → COLOR: **INV BW** and **INV GRN** turn the panel into its negative — a white screen with dark text, much brighter on a dim panel (the track colours invert too).
 - **Room for more.** The firmware is 53 KB smaller — the large font is drawn from the small one, the pitch table is one octave — with the screen and the sound exactly as before.
 
@@ -457,6 +458,24 @@ SLOOP takes MIDI from two places at once:
 | 10 | the drum track (the nearest of its 16 sounds; GLO → DRUMS → CH changes the channel) |
 | 4–16 | the selected track: set your keyboard to channel 4 and it follows ALGORITHM |
 
+**Expression.** Each synth track takes the controllers of the channel that plays it:
+
+| Message | What it does |
+| --- | --- |
+| Pitch bend | bends every note of the track, smoothly: ±2 semitones, the centre exactly the note |
+| RPN 0 (CC101 = 0, CC100 = 0, then CC6 = semitones, CC38 = cents) | that channel's bend range, 0–24 semitones; kept until the FM-1 is switched off (not saved) |
+| CC1, mod wheel | vibrato, 5.5 Hz, up to ±50 cents at the top; 0 = none |
+| CC64, sustain pedal | down (64 and up): the notes whose keys you let go keep sounding until the pedal goes up |
+| CC120, all sound off | the track's notes stop at once (the sequencer plays on: its next step sounds) |
+| CC121, reset controllers | no bend, no vibrato, the pedal up (its notes released) |
+| CC123, all notes off | every note of the track released, the pedal's too |
+
+- The drum track ignores bend, the mod wheel and the pedal (its sounds are one-shots); CC120 and CC123 on the drum channel cut the drums at once.
+- Bend and vibrato are live only: they are not recorded into the steps. With the pedal down while recording, a note is recorded as you hear it: it ends where the pedal goes up.
+- The pedal holds MIDI notes only: the FM-1's own keys ignore it. Nothing hangs: STOP, MUTE (or SOLO on another track), a new sound or engine, CC121 and CC123 let the pedal's notes go.
+- On channels 4–16 (the selected track) the controllers reach the selected track and any track still holding that channel's notes; a track left behind goes back to no bend and no vibrato.
+- The sound's own LFO, pitch and parameters are untouched; one bend and one mod wheel a track (channels sharing a track share them).
+
 **MIDI clock in:** GLO → SYSTEM → **SYNC** = **USB** or **TRS** (INT: SLOOP's own tempo). START plays from the top, CONTINUE carries on where it stopped, STOP stops; the tempo (BPM) follows the master, and the steps follow its 24 pulses a beat, so SLOOP cannot drift away from it. When the clock stops for half a second, PLAY on the FM-1 plays at its own tempo again. SYNC is a setting of the FM-1: it stays when you load a project.
 
 Bluetooth MIDI is not supported: SLOOP, like Felucca, never switches the radio on.
@@ -498,7 +517,7 @@ The glow is a short pulse on every scan of the panel (about 900 times a second):
 | Recording | live, quantised as heard (latency-compensated), overdub; records at once while playing; free take sets loop length and tempo, or the tempo set, from the first note or a one-bar count-in |
 | Memory | undo / redo, 4 projects, 32 user presets, autosave of the working project, song of 4 sections × 16 steps × 1–64 bars |
 | Audio | 44.1 kHz, fixed-point DSP; USB audio input (the master output, 16-bit stereo, class compliant) |
-| MIDI | USB class-compliant in / out; TRS MIDI IN (3.5 mm jack); channels 1–3 the synths, 10 the drums, 4–16 the selected track; MIDI clock in (USB or TRS) |
+| MIDI | USB class-compliant in / out; TRS MIDI IN (3.5 mm jack); channels 1–3 the synths, 10 the drums, 4–16 the selected track; pitch bend (RPN 0 range), mod wheel, sustain, CC120 / 121 / 123; MIDI clock in (USB or TRS) |
 | Update | over USB from the browser (package SHA-256 and CRC checked) |
 
 ## Rescue, going back, credits
@@ -506,5 +525,5 @@ The glow is a short pulse on every scan of the panel (about 900 times a second):
 - **USB rescue:** hold **OCT−** alone while switching on (*SLOOP USB RESCUE*), then install again.
 - **Interrupted install:** the FM-1 stays in update mode; press Install again and it finishes. A damaged package is refused, and the FM-1 keeps waiting for a good one.
 - **Back to the official firmware:** on the installer page, open **Return to the official firmware (V15)**: save a backup with the editor first, download FM-1 V15 from m-vave.com, select its FM-1.fwsc (only that exact file is accepted) and install it. M-VAVE's own updater, M-UPGRADE, works too (close every other app that uses MIDI first). To come back to SLOOP, install it again and restore your backup.
-- **Credits:** SLOOP is based on Felucca by Leo Kuroshita (@kurogedelic), Hügelton Instruments — engines, sequencer, editor and installer. Played-note key lights: @renebohne (pull request #11). Punch-in LATCH: after majnikool (isod89/sloop-fm1 pull request #28, GPL-3.0). TRS MIDI input buffer fix: Felucca [Salt] by ChanceTheMaker, found by keremimo. Knob reading, MIDI input, overload shedding, LED glow, key debounce, MIDI clock, the USB audio input and the return to the official firmware after Felucca 1.0 / 1.0.1. Font: Terminus (SIL OFL 1.1). Samples: Versilian Studios VSCO-2 CE and VCSL, Sonic Pi (all CC0). PHASE: CrispyZebra (GPL). VOICE after klattsch (MIT). DICE ACID: the TB-3PO generator from X0X (fm1-x0x) by Charles Vestal (GPL-3.0), after schwung-tb3po and the Phazerville Hemisphere Suite TB_3PO applet (djphazer and contributors, GPL-3.0), originally by Logarhythm (MIT). GRIDS: the drum map of Grids by Émilie Gillet / Mutable Instruments (GPL-3.0). Peaks drum models by Émilie Gillet / Mutable Instruments (MIT). Interface ideas after teenage engineering's pocket operators and EP-133, Elektron's step entry and Akai's MPC (swing, note repeat, erase); TURN after Music Thing Modular's Turing Machine and Mutable Instruments' Marbles (deja vu) — SLOOP is not affiliated with any of them.
+- **Credits:** SLOOP is based on Felucca by Leo Kuroshita (@kurogedelic), Hügelton Instruments — engines, sequencer, editor and installer. Played-note key lights: @renebohne (pull request #11). Punch-in LATCH: after majnikool (isod89/sloop-fm1 pull request #28, GPL-3.0). TRS MIDI input buffer fix: Felucca [Salt] by ChanceTheMaker, found by keremimo. MIDI expression in (bend, mod wheel, sustain, panic): after Felucca 1.0's MIDI control (a contribution by ChanceTheMaker) and his MIDI-EXPRESSION spec (GPL-3.0). Knob reading, MIDI input, overload shedding, LED glow, key debounce, MIDI clock, the USB audio input and the return to the official firmware after Felucca 1.0 / 1.0.1. Font: Terminus (SIL OFL 1.1). Samples: Versilian Studios VSCO-2 CE and VCSL, Sonic Pi (all CC0). PHASE: CrispyZebra (GPL). VOICE after klattsch (MIT). DICE ACID: the TB-3PO generator from X0X (fm1-x0x) by Charles Vestal (GPL-3.0), after schwung-tb3po and the Phazerville Hemisphere Suite TB_3PO applet (djphazer and contributors, GPL-3.0), originally by Logarhythm (MIT). GRIDS: the drum map of Grids by Émilie Gillet / Mutable Instruments (GPL-3.0). Peaks drum models by Émilie Gillet / Mutable Instruments (MIT). Interface ideas after teenage engineering's pocket operators and EP-133, Elektron's step entry and Akai's MPC (swing, note repeat, erase); TURN after Music Thing Modular's Turing Machine and Mutable Instruments' Marbles (deja vu) — SLOOP is not affiliated with any of them.
 - **Licence:** GPL-3.0, no warranty. M-VAVE and FM-1 are trademarks of their owners; SLOOP is not affiliated with them. Drum kit names describe styles; they do not refer to any product (PEAKS and PEAKS FM name the open-source drum models they are ported from, see the credits).

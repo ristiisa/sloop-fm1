@@ -12,7 +12,8 @@
  * Four tracks: tracks 1..3 are synth parts (steps of up to 4 notes), track 4 the drum track (steps
  * of 16 lanes, one per white key). Each step note / lane has a level (ghost .. hard) and a ratchet
  * (x1..x4 hits in its step). The keys play the selected track; MIDI channels 1..3 play parts 1..3,
- * the DRUMS channel (GLO > DRUMS, default 10) the drum track, any other channel the selected track.
+ * the DRUMS channel (GLO > DRUMS, default 10) the drum track, any other channel the selected track;
+ * with pitch bend, the mod wheel, the sustain pedal and CC120 / 121 / 123 (midi_ctl).
  *
  * Layers: a function button held turns the keys into something else (TE style: hold + touch):
  *   FX   punch-in effects (punch.c)       EDIT  erase that note / sound (while held, as it plays)
@@ -2296,6 +2297,7 @@ static void seq_release(track_t *t)
     t->slide_glide = 0;                             /* live MONO / LEG keys must not glide after it */
 }
 
+static void sus_flush(track_t *t);
 static void seq_stop(void)
 {
     uint32_t i;
@@ -2307,6 +2309,7 @@ static void seq_stop(void)
     song.playing = 0;
     punch_unlatch();                               /* STOP (the song's end, a load) ends a latched punch-in */
     for (i = 0; i < NTRK; i++) {
+        sus_flush(&trk[i]);                        /* MIDI notes the sustain pedal holds */
         seq_release(&trk[i]);
         plk_drop(&trk[i]);                         /* the tracks' own values */
         trk[i].rh_n = 0;                           /* a recorded note held over the stop: as far as it got */
@@ -2495,13 +2498,18 @@ static track_t *midi_track(uint32_t ch)
     return ch < NPART ? &trk[ch] : TSEL;
 }
 
+static int midi_sel_ch(uint32_t ch)                   /* the channel plays the selected track */
+{
+    return ch >= NPART && !(song.g[G_DRCH] && ch + 1u == (uint32_t)song.g[G_DRCH]);
+}
+
 /* a channel that plays the selected track: its note-off goes to the track its note-on went to,
  * even when another track was selected in between (else that note would hang) */
 static uint8_t midi_sel_on[16][128];                  /* per channel and note: track + 1, 0 = none */
 static track_t *midi_route(uint32_t ch, uint32_t note, int on)
 {
     track_t *t = midi_track(ch);
-    if (ch < NPART || (song.g[G_DRCH] && ch + 1u == (uint32_t)song.g[G_DRCH]))
+    if (!midi_sel_ch(ch))
         return t;                                     /* a part's own channel, or the drum channel */
     if (on)
         midi_sel_on[ch & 15u][note & 127u] = (uint8_t)(song.sel + 1u);
@@ -2510,6 +2518,178 @@ static track_t *midi_route(uint32_t ch, uint32_t note, int on)
         midi_sel_on[ch & 15u][note & 127u] = 0;
     }
     return t;
+}
+
+/* MIDI expression in (after Felucca 1.0's midi_control.c, from a contribution by ChanceTheMaker, and his
+ * docs/MIDI-EXPRESSION.txt; GPL-3.0), on the parts a channel plays: pitch bend (14 bits; +-2 semitones, RPN 0
+ * sets a channel's range, 0..24 semitones + cents, RAM only), the mod wheel (CC1: vibrato; both voice.c
+ * mx_tick), the sustain pedal (CC64), all sound off (CC120: the voices fade out now), reset controllers (CC121:
+ * no bend, no vibrato, pedal up), all notes off (CC123: pedal or not). The drum track takes CC120 / CC123 (its voices cut), nothing else. A channel that plays the
+ * selected track reaches it and the parts still holding its notes; a part it no longer reaches goes back to no
+ * bend / vibrato. The pedal holds the MIDI notes whose key goes up (the FM-1's keys ignore it) until it goes
+ * up, CC121 / CC123, STOP, a panic (a sound or engine change), MUTE or SOLO elsewhere: their note-offs
+ * (recording: the note ends there) are only put off */
+static struct {
+    uint16_t ped;                                     /* bit per channel: the pedal is down */
+    uint16_t rset;                                    /* bit per channel: RPN 0 set its bend range (else 2 st) */
+    uint8_t rng[16], cent[16];                        /* .. semitones, cents */
+    uint8_t rpn[16];                                  /* RPN 0 selected: bit 0 its MSB, bit 1 its LSB */
+    uint8_t xb[NPART], xm[NPART];                     /* the channel + 1 a part's bend / vibrato came from */
+    uint16_t sch[NPART];                              /* bit per channel whose pedal holds notes of the part */
+    uint32_t sus[NPART][4];                           /* .. those notes (bit per note) */
+} mxi;
+
+static void sus_flush(track_t *t)                     /* the notes the pedal holds: let go */
+{
+    uint32_t i = trk_index(t), k;
+    if (i >= NPART || !mxi.sch[i])
+        return;
+    mxi.sch[i] = 0;
+    for (k = 0; k < 128u; k++) {
+        if (!(k & 31u) && !mxi.sus[i][k >> 5]) {
+            k += 31u;                                 /* (32 notes, none held) */
+        } else if ((mxi.sus[i][k >> 5] >> (k & 31u)) & 1u) {
+            mxi.sus[i][k >> 5] &= ~(1u << (k & 31u));
+            input_off(t, k);
+        }
+    }
+}
+
+/* a MIDI note on / off of part t from channel ch; 1: the off is held by the pedal */
+static int sus_note(track_t *t, uint32_t ch, uint32_t note, int on)
+{
+    uint32_t i = trk_index(t), b = 1u << (note & 31u), *w;
+    if (i >= NPART)
+        return 0;
+    w = &mxi.sus[i][(note >> 5) & 3u];
+    if (on) {
+        if (*w & b) {                                 /* held, played again: the held one ends first */
+            *w &= ~b;
+            input_off(t, note);
+        }
+        return 0;
+    }
+    if (!((mxi.ped >> ch) & 1u))
+        return 0;
+    *w |= b;
+    mxi.sch[i] |= (uint16_t)(1u << ch);
+    return 1;
+}
+
+static void trk_panic(track_t *t)                     /* every note of t let go (latched, held by the pedal) */
+{
+    sus_flush(t);
+    trk_all_off(t);
+    t->nheld = 0;
+    t->arp_phys = 0;
+    t->arp_n = t->arp_snd = t->arp_rat = 0;
+}
+
+static uint32_t midi_parts(uint32_t ch)               /* the parts channel ch's controllers reach: bit per part */
+{
+    track_t *t = midi_track(ch);
+    uint32_t m = is_drum(t) ? 0u : 1u << trk_index(t), i, k;
+    if (!midi_sel_ch(ch))
+        return m;
+    for (i = 0; i < NPART; i++)
+        if ((mxi.sch[i] >> ch) & 1u)
+            m |= 1u << i;
+    for (k = 0; k < 128u && m != (1u << NPART) - 1u; k++) {
+        i = midi_sel_on[ch][k];
+        if (i && i <= NPART)
+            m |= 1u << (i - 1u);
+    }
+    return m;
+}
+
+static void mx_set(uint32_t ch, uint32_t wheel, int32_t v)   /* bend (1/4096 st) or vibrato depth to v */
+{
+    uint32_t m = midi_parts(ch), i;
+    uint8_t *x = wheel ? mxi.xm : mxi.xb;
+    for (i = 0; i < NPART; i++) {
+        int32_t *d = wheel ? &mx[i].dep : &mx[i].bend;
+        if ((m >> i) & 1u) {
+            *d = v;
+            x[i] = (uint8_t)(ch + 1u);
+        } else if (x[i] == ch + 1u) {
+            *d = 0;
+            x[i] = 0;
+        }
+    }
+}
+
+static void midi_ctl(uint32_t ch, uint32_t st, uint32_t c, uint32_t v)   /* bend (c, v: LSB, MSB), a CC */
+{
+    uint32_t b = 1u << ch, m, i, k;
+    if (st == 0xE0u) {
+        int32_t r = (mxi.rset & b) ? mxi.rng[ch] * 100 + mxi.cent[ch] : 200;   /* the range, cents */
+        mx_set(ch, 0, ((int32_t)(c | v << 7) - 8192) * r / 200);
+        return;
+    }
+    switch (c) {
+    case 1:
+        mx_set(ch, 1, (int32_t)v << 8);
+        return;
+    case 6:
+    case 38:                                          /* data entry: RPN 0 = the bend range */
+        if (mxi.rpn[ch] != 3u)
+            return;
+        if (!(mxi.rset & b)) {
+            mxi.rng[ch] = 2;
+            mxi.cent[ch] = 0;
+            mxi.rset |= (uint16_t)b;
+        }
+        if (c == 6u)
+            mxi.rng[ch] = (uint8_t)(v < 24u ? v : 24u);
+        else
+            mxi.cent[ch] = (uint8_t)(v < 99u ? v : 99u);
+        return;
+    case 100:
+    case 101:
+        k = c == 101u ? 1u : 2u;
+        mxi.rpn[ch] = (uint8_t)((mxi.rpn[ch] & ~k) | (v ? 0u : k));
+        return;
+    case 98:
+    case 99:                                          /* an NRPN: no RPN selected */
+        mxi.rpn[ch] = 0;
+        return;
+    case 64:
+    case 121:
+        if (c == 64u && v >= 64u) {
+            mxi.ped |= (uint16_t)b;
+            return;
+        }
+        mxi.ped &= (uint16_t)~b;
+        for (i = 0; i < NPART; i++)
+            if ((mxi.sch[i] >> ch) & 1u)
+                sus_flush(&trk[i]);
+        if (c == 121u) {
+            mx_set(ch, 0, 0);
+            mx_set(ch, 1, 0);
+            mxi.rpn[ch] = 0;
+        }
+        return;
+    case 120:
+    case 123:
+        break;
+    default:
+        return;
+    }
+    if (is_drum(midi_track(ch)))
+        for (k = 0; k < NDRUM; k++)                   /* the drums: cut (the declick tail) */
+            if (drums.v[k].active) {
+                drums.tail += drums.v[k].s[7];
+                drums.v[k].active = 0;
+            }
+    m = midi_parts(ch);
+    for (i = 0; i < NPART; i++)
+        if ((m >> i) & 1u) {
+            trk_panic(&trk[i]);
+            if (c == 120u)
+                for (k = 0; k < NVOICE; k++)
+                    if (trk[i].v[k].active && trk[i].v[k].stage != 4u)
+                        voice_kill(&trk[i].v[k]);
+        }
 }
 
 /* MIDI clock in (GLO > SYSTEM > SYNC = USB or TRS; after Felucca 1.0's midi_clock.c, from contributions by
@@ -2669,12 +2849,10 @@ static void events_block(uint32_t n)
     panic_req = 0;
     for (i = 0; i < NTRK; i++) {
         track_t *t = &trk[i];
-        if ((pr >> i) & 1u) {
-            trk_all_off(t);
-            t->nheld = 0;
-            t->arp_phys = 0;
-            t->arp_n = t->arp_snd = t->arp_rat = 0;
-        }
+        if ((pr >> i) & 1u)
+            trk_panic(t);
+        else if (i < NPART && mxi.sch[i] && (trk_silent(t) || t->eng_req != t->engine))
+            sus_flush(t);                             /* MUTE / SOLO elsewhere, an engine switch: the pedal lets go */
         if (i < NPART)
             engine_block(t);                          /* engine switch: fade, then switch (voice.c) */
         /* ARP turned off, or HOLD released with no key down: drop the latched chord */
@@ -2698,6 +2876,10 @@ static void events_block(uint32_t n)
             mclk_event((pkt >> 8) & 0xFFu, ((pkt >> 4) & 15u) ? 2u : 1u);
             continue;
         }
+        if (st == 0xB0u || st == 0xE0u) {
+            midi_ctl(ch, st, d1, d2);
+            continue;
+        }
         if (st != 0x90u && st != 0x80u)
             continue;
         t = midi_route(ch, d1, st == 0x90u && d2);
@@ -2705,8 +2887,9 @@ static void events_block(uint32_t n)
             if (st == 0x90u && d2)
                 drum_input(lane_of_note(d1), vel_lvl(d2), 0, 1);
         } else if (st == 0x90u && d2) {
+            sus_note(t, ch, d1, 1);
             input_on(t, d1, d2);
-        } else {
+        } else if (!sus_note(t, ch, d1, 0)) {
             input_off(t, d1);
         }
     }
