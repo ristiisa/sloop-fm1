@@ -481,7 +481,7 @@ async function editorV5() {
   const C = E.CMD;
   const { m, rq, ev, done } = attachMock({ watchMs: 1000 });
   const info = E.parse[C.INFO](await rq(E.req.info()));
-  ok(info.proto === 6 && /SLOOP/.test(info.version) && info.pcount === 69 && info.gcount === 32 && info.pe0 === 61, "v5/v6: INFO ends with the protocol version (6: backup)");
+  ok(info.proto === 6 && /SLOOP/.test(info.version) && info.pcount === 69 && info.gcount === 33 && info.pe0 === 61, "v5/v6: INFO ends with the protocol version (6: backup)");
   /* the firmware says the same: ED_DRUM_STEP is command 33, INFO sends 5, P_CHORD / the master globals as the mock has them */
   const ec = readFileSync(join(HERE, "../firmware/src/editor.c"), "utf8"), pc = readFileSync(join(HERE, "../firmware/src/params.c"), "utf8");
   const en = (/enum \{ ED_INFO = 1,([^}]*)\}/.exec(ec) || [])[1] || "";
@@ -498,6 +498,9 @@ async function editorV5() {
     && /\[G_DUST\] = PD\("DUST", F_PCT, 0, 127, 0\)/.test(pc) && /\[G_FILT\] = PD\("FILT", F_FILT, -64, 63, 0\)/.test(pc)
     && /\[G_ROLL\] = PE\("ROLL", N_ROLL, 1\)/.test(pc) && /\[G_NEWPRJ\] = PE\("NEW", N_GO, 0\)/.test(pc),
     "v5: CHORD, DUST, DUCK, FILT, ROLL, NEW (mock == params.c)");
+  const prog = E.parse[C.DESC](await rq(E.req.desc(1, 32)));
+  ok(prog.label === "PROG" && prog.names.join() === enumNames("N_PROG").join() && prog.def === 0
+    && /\[G_PROG\] = PE\("PROG", N_PROG, 0\)/.test(pc), "2.5: GLO > JAM PROG (mock == params.c)");
   const rat = E.parse[C.DESC](await rq(E.req.desc(0, 53)));
   ok(rat.label === "RAT" && rat.names.join() === enumNames("N_ARAT").join() && rat.max === 9 && /\[P_ARAT\] = PE\("RAT", N_ARAT, 0\)/.test(pc),
     "2.5: arp RAT X1..X4, UP2..DN4 (mock == params.c)");

@@ -17,6 +17,7 @@ SLOOP is free and open source (GPL-3.0), based on [Felucca](https://github.com/h
 - **Parameter locks.** A step can have its own sound: lock SEQ open (SEQ + HOME), tap ENV, LFO, FX or EDIT, hold steps and turn a knob (8 locks a step, 56 a project; OCT− with steps held clears them). See [P-LOCK](#p-lock--a-steps-own-sound).
 - **MUTATE.** EDIT + **KNOB 4**: each click right varies the pattern a little, left takes it back.
 - **TURN: a pattern that rewrites itself.** SEQ → PATTERN 2 → **TURN** (0–100 %): while it plays, each step is rewritten with that chance as it comes round — new notes in the scale and the register of the pattern, drum hits that come, go and change sound — and stays so; back at 0 you keep what you hear (after the Turing Machine and Marbles). See [TURN](#turn--a-pattern-that-rewrites-itself).
+- **PROG: the chords change.** GLO → JAM → **PROG**: while it plays, the key follows a chord progression, one chord a bar — I V vi IV, vi IV I V, I vi IV V, ii V I, I IV V IV, three minor ones (i VI III VII, i iv v i, the Andalusian i VII VI V) or the 12-bar blues. The synth tracks (pattern, arp, keys, MIDI in) move along their scale with the chord, the drums stay, the pattern stays as written. See [PROG](#prog--a-chord-progression).
 - **DICE.** EDIT + **PRESETS**: each click right rolls a new pattern for the selected track — a groove on the drum track, a bass line, a melody or chords in the song's key on a synth track — in a style (EDIT + **ALGORITHM**: HOUSE, TRAP, BOOM BAP, BREAK, AMAPIANO, DNB, RANDOM, or KIT: the style of the drum kit); left goes back through the rolls to your own pattern. See [EDIT — erase](#edit--erase).
 - **ACID.** A DICE style (EDIT + **ALGORITHM**): on a synth track each roll is a new 303 line — notes in the key, accents, slides, ties — after the TB-3PO generator; on the drum track, acid house. See [EDIT — erase](#edit--erase).
 - **GRIDS.** The drum screen's **map** page: four knobs — **X**, **Y**, **DENSITY**, **CHAOS** — move through a map of 25 drum patterns, and the kick, snare and hat follow while you turn, morphing from one groove into the next; the result is written into the pattern (saved, editable). After Grids by Émilie Gillet. See [GRIDS — the drum map](#grids--the-drum-map).
@@ -314,6 +315,29 @@ A step can play with its own value of a sound parameter (Elektron's parameter lo
 
 Changing a sound (PRESETS, a user preset) never changes the key, the chord mode, the pattern or the mix of its track.
 
+### PROG — a chord progression
+
+GLO → **JAM** → **PROG** (KNOB 1): while the transport plays, the key of the song follows a chord progression, one chord a bar. **OFF** (the default) plays everything as written.
+
+| PROG | Chords, a bar each |
+| --- | --- |
+| 1564 | I V vi IV |
+| 6415 | vi IV I V |
+| 1645 | I vi IV V |
+| 2511 | ii V I I |
+| 1454 | I IV V IV |
+| 1637 | i VI III VII (minor) |
+| 1451 | i iv v i (minor) |
+| ANDAL | i VII VI V (the Andalusian cadence, minor) |
+| BLUES | I I I I IV IV I I V IV I V (12 bars) |
+
+- The bars count from PLAY (4 beats a bar); a song section (played live or in the song) starts the progression over.
+- Every note of the synth tracks — the steps, the arp, rolls, your keys and MIDI in — moves by the chord's degree in the track's own scale and key: on C major with 1564 a C E G step plays C E G, G B D, A C E, F A C. Each note moves the same number of steps of the scale, so a chord stays a chord of the scale, up or down, whichever is nearer (IV up a fourth, V down a fourth). With SCALE on CHR the notes move by the semitones of the major scale (of the minor scale for the minor progressions); other scales (pentatonics, blues…) move by as many steps of their own notes.
+- Write the pattern in the key (the I chord) and PROG plays it through the changes. The pattern itself never changes: PROG OFF gives it back as written. What you record is recorded as you played it, and plays back moved by the chord of its bar again.
+- A note sounding over a bar line keeps its pitch until it ends (no retrigger).
+- The drum track never moves (nor a synth track playing the GM kit). MIDI out of the keys sends the keys as you press them.
+- The JAM page shows the progression in roman numerals, the chord of the bar playing lit. PROG is saved with the project.
+
 ### GLO — mix
 
 - White keys **1–4 mute** tracks 1–4 (a muted track fades out in a few ms and plays no new notes; its pattern runs on in time), keys **5–8 solo** them (several solos add up). The tiles show what is heard.
@@ -435,7 +459,7 @@ Open it from the installer page, or with **`OPEN-EDITOR.bat`** (`http://localhos
 - **Sound** — every parameter of the selected track, the engines and presets, files.
 - **Sequencer** — the pattern settings and the steps. On the **drum track**: a grid of the 16 sounds × the steps, with the **kit**. Choose a **level** (GHOST, SOFT, NORM, HARD) and a **roll** (x1–x4), then click: a hit; click it again (same level and roll): cleared; Shift+click: one level louder.
 - **Tracks** — the four channel strips (level, pan, mute; SOLO and REC shown as on the device).
-- **Library**, **Samples** (with CHOP), **Projects**, **Settings** (GLOBAL, **MASTER**: DUST, DUCK, FILT, ROLL; DRUMS).
+- **Library**, **Samples** (with CHOP), **Projects**, **Settings** (GLOBAL, **MASTER**: DUST, DUCK, FILT, ROLL; DRUMS; JAM: PROG).
 - **Backup** (Projects tab): **Save a backup** writes everything on the FM-1 to one file (SLOOP-backup-DATE.json): the music you are working on, the projects 1–4 (the song sections A–D), the 32 user presets, the samples USR1–3 and the settings (colours, calibration, the song order, the lights, SYNC). **Restore from a file** puts it all back — what is on the FM-1 is replaced. A damaged file is refused before anything is written, every object is checked as a load checks it, and each one is written as a save writes it (a cut-off restore never leaves half an object). Stop the song (PLAY) before restoring.
 
 The protocol is documented in [web/EDITOR_PROTOCOL.md](web/EDITOR_PROTOCOL.md) (v6).

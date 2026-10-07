@@ -90,6 +90,8 @@ $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/mutate_test" tests/mutate_test.c 
 run "mutate: invariants over thousands of passes, kicks on the beats, a little a pass, exact undo" "$OUT/mutate_test"
 $CC -O2 -w -Ibuild/gen -Ifirmware/src -Ifirmware/hal -o "$OUT/turing_test" tests/turing_test.c -lm
 run "turing: TURN 0 / 100 %, the rates, scale and register, structure, kicks on the beats, recording, undo, locks" "$OUT/turing_test" "$OUT"
+$CC -O2 -w -Ibuild/gen -Ifirmware/src -Ifirmware/hal -o "$OUT/prog_test" tests/prog_test.c -lm
+run "prog: a chord a bar, every progression, exact in every scale, arp, drums, OFF, sections, held notes, the JAM page" "$OUT/prog_test" "$OUT"
 $CC -O2 -w -Ibuild/gen -Ifirmware/src -Ifirmware/hal -o "$OUT/dice_test" tests/dice_test.c -lm
 run "dice: every style, thousands of rolls: invariants, signatures, scale and register, turned back exactly, undo, the gesture" "$OUT/dice_test" "$OUT"
 $CC -O2 -w -Ibuild/gen -Ifirmware/src -Ifirmware/hal -o "$OUT/grids_test" tests/grids_test.c -lm

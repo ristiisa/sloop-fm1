@@ -73,6 +73,7 @@ enum {                          /* global parameters */
     G_DUST, G_DUCK, G_FILT,     /* the master bus: lo-fi / vinyl, the kick ducking the parts, the DJ filter (fx.c) */
     G_ROLL,                     /* note repeat rate (ARP + key, seq.c) */
     G_NEWPRJ,                   /* TOOLS > NEW: a new project (GO) */
+    G_PROG,                     /* GLO > JAM: the key follows a chord progression, a chord a bar (seq.c prog) */
     G_COUNT
 };
 

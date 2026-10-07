@@ -381,6 +381,9 @@ static uint32_t graph_signature(void)
     h ^= (uint32_t)TSEL->preset * 7u + (uint32_t)song.g[G_SLOT] * 13u + TSEL->user * 257u + up_gen * 7919u + ui.uslot * 104729u;
     if (pg->graph == GR_SLCR && t->p[P_SLCR])        /* the SLICER's step playing */
         h ^= (sl[song.sel].idx + 1u) * 2654435761u;
+    if (pg->scope == SC_GLOBAL && pg->id[0] == G_PROG)   /* JAM: the progression, the chord playing */
+        h ^= (uint32_t)song.g[G_PROG] * 40503u +
+             (song.playing && song.g[G_PROG] ? prog_bar((uint32_t)song.g[G_PROG] - 1u) + 1u : 0u) * 2654435761u;
     if (pg->graph == GR_SLOTS)                       /* (a checksum over each slot) */
         for (i = 0; i < 4u; i++)
             h ^= (uint32_t)project_used(i) << (20u + i);
@@ -392,6 +395,27 @@ static uint32_t graph_signature(void)
     }
     return h;
 }
+/* JAM: the progression of PROG in roman numerals, four bars a row, the chord playing in white */
+static void graph_prog(uint16_t c)
+{
+    static const char *const RN[2][7] = {{"I", "ii", "iii", "IV", "V", "vi", "vii"},
+                                         {"i", "ii", "III", "iv", "v", "VI", "VII"}};
+    uint32_t p = (uint32_t)song.g[G_PROG] - 1u, n, k, cur;
+    int32_t y0;
+    if (p >= NPROG)
+        return;
+    n = str_len(PROG_DEG[p]);
+    cur = song.playing ? prog_bar(p) : n;
+    y0 = (100 - (int32_t)(n + 3u) / 4 * 30) / 2;
+    for (k = 0; k < n; k++) {
+        const char *s = RN[(PROG_MINOR >> p) & 1u][(PROG_DEG[p][k] - '1') % 7];
+        int32_t w = text_w(&FONT_S, s), x = (int32_t)(k % 4u) * 60 + 30 - w / 2, y = y0 + (int32_t)(k / 4u) * 30;
+        cv_text(x, y + 4, &FONT_S, s, k == cur ? C_WHITE : C_GRAY);
+        if (k == cur)
+            cv_rect(x, y + 24, w, 2, c);
+    }
+}
+
 /* preset browser: the list by kind (ui.c BANK), the current one in white */
 static void graph_browse(void)
 {
@@ -702,6 +726,8 @@ static void draw_graph(void)
             graph_user();
             break;
         default:
+            if (pg->scope == SC_GLOBAL && pg->id[0] == G_PROG)
+                graph_prog(c);
             break;
         }
     }
