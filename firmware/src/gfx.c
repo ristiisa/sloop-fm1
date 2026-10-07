@@ -27,6 +27,7 @@ static int32_t cv_oy;            /* y offset for graph drawing */
 typedef struct {
     const char *name;
     uint16_t c[5];
+    uint8_t inv;                 /* the panel shows the negative (lcd_invert): black is white, c[] as their complements */
 } palette_t;
 static const palette_t PALETTES[] = {
     {"GREEN", {RGB(0, 40, 12), RGB(0, 84, 30), RGB(16, 140, 54), RGB(56, 200, 92), RGB(120, 255, 146)}},
@@ -34,12 +35,13 @@ static const palette_t PALETTES[] = {
     {"CYAN", {RGB(0, 30, 50), RGB(0, 62, 96), RGB(16, 112, 160), RGB(56, 172, 222), RGB(140, 222, 255)}},
     {"RED", {RGB(52, 8, 8), RGB(100, 18, 14), RGB(170, 36, 26), RGB(226, 64, 48), RGB(255, 112, 92)}},
     {"MONO", {RGB(40, 40, 40), RGB(80, 80, 80), RGB(130, 130, 130), RGB(186, 186, 186), RGB(226, 226, 226)}},
-    /* high contrast, for a dim panel: every step lifted, the top one still short of the white accent */
-    {"HI MONO", {RGB(96, 96, 96), RGB(150, 150, 150), RGB(200, 200, 200), RGB(232, 232, 232), RGB(255, 240, 200)}},
-    {"HI GRN", {RGB(0, 96, 34), RGB(24, 160, 64), RGB(80, 224, 112), RGB(150, 255, 170), RGB(210, 255, 220)}},
+    /* inverted, for a dim panel: a white screen, dark text (on the panel: light grey / green .. black / dark green) */
+    {"INV BW", {RGB(40, 40, 40), RGB(80, 80, 80), RGB(130, 130, 130), RGB(186, 186, 186), RGB(226, 226, 226)}, 1},
+    {"INV GRN", {RGB(65, 35, 57), RGB(125, 70, 110), RGB(195, 115, 175), RGB(235, 155, 210), RGB(255, 195, 235)}, 1},
 };
 #define NPALETTES (sizeof(PALETTES) / sizeof(PALETTES[0]))
 static uint16_t pal[5];
+static uint8_t pal_inv;              /* the palette wants the panel inverted (main loop: lcd_invert) */
 #define C_LINE pal[0]                /* 1 rules, separators */
 #define C_DIM pal[1]                 /* 2 inactive, empty steps, units */
 #define C_GRAY pal[2]                /* 3 labels */
@@ -51,6 +53,7 @@ static void palette_set(uint32_t i)
     uint32_t k;
     for (k = 0; k < 5u; k++)
         pal[k] = PALETTES[i % NPALETTES].c[k];
+    pal_inv = PALETTES[i % NPALETTES].inv;
 }
 
 static inline uint16_t swap16(uint32_t c) { return (uint16_t)(((c >> 8) & 0xFFu) | ((c & 0xFFu) << 8)); }

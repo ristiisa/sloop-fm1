@@ -108,6 +108,16 @@ static const uint8_t LCD_SEQ[] = {
     0x13, 0,                     /* NORON */
 };
 
+/* the panel's negative on / off (INVOFF on this IPS panel; INVON is its normal picture), between frames */
+static void lcd_invert(uint32_t on)
+{
+    static uint8_t now;
+    if (now == !!on)
+        return;
+    now = (uint8_t)!!on;
+    lcd_cmd(on ? 0x20 : 0x21);
+}
+
 static void lcd_init(void)
 {
     uint32_t r, x;
