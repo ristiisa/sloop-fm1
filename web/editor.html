@@ -1328,7 +1328,7 @@ async function capturePatch(rq, info, name) {
 
 /* what loading a sound leaves alone (firmware ui.c param_kept): the mix (LEVEL, PAN, MUTE), the pattern
    parameters (LEN, DIV, SWG, GATE) and the key the part plays in (ROOT, SCL, QNT; CHORD from SLOOP 2.0) */
-const keptIds = (info) => new Set([0, 25, 26, 27, 29, 30, 31, 32, 39, 40, ...(info.pe0 > 49 ? [49] : [])]);
+const keptIds = (info) => new Set([0, 25, 26, 27, 29, 30, 31, 32, 39, 40, ...(info.pe0 > 49 ? [49] : []), ...(info.pe0 > 60 ? [60] : [])]);
 /* play a patch without writing flash, as UP_LOAD would load it: SET the engine (G_ENGSEL, engine defaults),
    then every parameter of the sound that differs. Never the pattern (LIVE: a sound never changes the
    sequence), the mix or the key. opt: {gEng: G_ENGSEL id, progress(i, n)} -> {wrote: false} */
@@ -1664,7 +1664,7 @@ function makeMockDevice(opt = {}) {
         if (a.length < 1) return null;
         const u = drumSel() ? null : st.bank[a[0]];
         if (u) {                                    /* the sound; the mix, pattern and key parameters stay (param_kept) */
-          const KEPT = [0, 25, 26, 27, 29, 30, 31, 32, 39, 40, P_CHORD], mix = KEPT.map((i) => st.p[i]);
+          const KEPT = [0, 25, 26, 27, 29, 30, 31, 32, 39, 40, P_CHORD, 60], mix = KEPT.map((i) => st.p[i]);
           st.engine = u.engine; st.preset = 0; st.p = u.p.slice();
           KEPT.forEach((i, k) => { st.p[i] = mix[k]; });
           /* LIVE firmware: a user preset brings its sound only, never its pattern */
