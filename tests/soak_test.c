@@ -76,6 +76,7 @@ int main(int argc, char **argv)
                        t->p[P_ARHYM] = (int16_t)rnd(16); t->p[P_ADEJA] = (int16_t)rnd(128);
                        t->p[P_ASHIFT] = (int16_t)rnd(15) - 7; t->p[P_ACYC] = (int16_t)(2 + rnd(7));
                        trk[rnd(NTRK)].p[P_TURN] = (int16_t)(rnd(3) ? 0 : rnd(101));   /* TURN (any track) */
+                       song.g[G_EVOL] = (int16_t)rnd(5); song.g[G_EVBK] = (int16_t)rnd(4);   /* EVOLVE */
                        t->p[P_SCALE] = (int16_t)rnd(16); t->p[P_ROOT] = (int16_t)rnd(12); break; }
             default: {                                                             /* keys: press / release */
                 uint32_t key = rnd(27);
@@ -87,7 +88,7 @@ int main(int argc, char **argv)
         }
         fm1_in.notes = held;
         if (b % 22u == 0u)
-            turing_arm();                                     /* (the UI, once a frame) */
+            turing_arm(), evolve_tick();                      /* (the UI, once a frame) */
         if (rnd(3000) == 0) {                                 /* now and then an empty project: free takes */
             for (k = 0; k < NTRK; k++)
                 steps_clear(&trk[k]);

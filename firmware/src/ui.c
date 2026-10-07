@@ -171,6 +171,7 @@ static int undo_swap(int redo)
     t->p[P_SLEN] = undo.len;
     undo.len = len;
     undo.undone = (uint8_t)!redo;
+    ev_new[undo.trk % NTRK] = 1;                  /* (EVOLVE: a new starting point) */
     fm1_irq_on();
     sync_reload = 1;
     ui.force = 1;

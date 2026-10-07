@@ -161,7 +161,8 @@ first ones = P_LEVEL.. in order, missing ones = defaults). P_COUNT was 53 (P_E0 
 parameters (SLCR, PAT, RATE, DEPTH: ids 45..48) went in just before P_E0: P_COUNT 57, P_E0 49; SLOOP 2.0
 added CHORD (id 49): P_COUNT 58, P_E0 50 (and G_COUNT 32: DUST, DUCK, FILT, ROLL, NEW at 27..31); SLOOP
 2.4 the arp rhythm (ACC, HITS, STEPS, RAT: 50..53): P_COUNT 62, P_E0 54; SLOOP 2.5 ROT, SYNC, RHYM, DEJA
-(54..57), SHIFT, CYC (58, 59) and TURN (60): P_COUNT 69, P_E0 61. An editor takes them from `INFO`; older
+(54..57), SHIFT, CYC (58, 59) and TURN (60): P_COUNT 69, P_E0 61 (and the globals EVOL, BACK at 32, 33:
+G_COUNT 34). An editor takes them from `INFO`; older
 records load with the SLICER off, CHORD off, TURN 0 and the arp parameters added since at their defaults.
 
 ## v2: live sync

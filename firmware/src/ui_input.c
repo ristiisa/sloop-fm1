@@ -774,6 +774,7 @@ static void ui_input(void)
     int32_t s;
     int layered;
     turing_arm();                                       /* TURN turned up / down (any way: knob, editor, a load) */
+    evolve_tick();                                      /* EVOLVE: a pass / BACK on the bars begun since */
     if (pressed || notes)
         ui_input_ms = fm1_ms;
     if (home == BT_HOLD) {                              /* HOME held: open the menu, or leave it */
