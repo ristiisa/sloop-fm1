@@ -21,6 +21,7 @@
 #include "drums.c"
 #include "params.c"
 #include "voice.c"
+#include "color.c"           /* per-track COLOR insert, used by slicer.c and fx.c */
 #include "slicer.c"          /* per-track SLICER insert, used by fx.c */
 #include "fx.c"
 #ifndef FELUCCA_OTA

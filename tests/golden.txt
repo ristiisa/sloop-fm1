@@ -131,3 +131,7 @@ song/4track_mix f6a061deed818d16
 slicer/gate/ANALOG_DARK_STR d0f4d0ea68d3f777
 slicer/stut/DIGITAL_RHODES 1c3201824cef5c15
 slicer/song_gate_stut 05eb8ac7b2c736f4
+color/phasr/ANALOG_DARK_STR 1792a22bb8c97973
+color/wah/ANALOG_DARK_STR f31571129117fce1
+color/fold/ANALOG_DARK_STR 3a8bb273f786275f
+color/ring/ANALOG_DARK_STR 1ead102a12035246

@@ -35,6 +35,7 @@ static void fm1_irq_on(void) {}
 #include "../firmware/src/drums.c"
 #include "../firmware/src/params.c"
 #include "../firmware/src/voice.c"
+#include "../firmware/src/color.c"
 #include "../firmware/src/slicer.c"
 #include "../firmware/src/fx.c"
 static void fm1_delay_ms(uint32_t ms) { (void)ms; }

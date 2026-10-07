@@ -68,7 +68,10 @@ int main(int argc, char **argv)
             case 10: song.g[G_CLOCK] = (int16_t)rnd(3); break;
             case 11: midi_in(0x90u | rnd(16), 24 + rnd(80), 1 + rnd(127)); break;
             case 12: midi_in(0x80u | rnd(16), 24 + rnd(80), 0); break;
-            case 13: trk[rnd(NTRK)].p[P_SLCR] = (int16_t)rnd(3); break;
+            case 13: { track_t *t = &trk[rnd(NTRK)];                           /* SLICER, COLOR */
+                       trk[rnd(NTRK)].p[P_SLCR] = (int16_t)rnd(3);
+                       t->p[P_COLOR] = (int16_t)(rnd(3) ? 0 : 1 + rnd(4)); t->p[P_CAMT] = (int16_t)rnd(128);
+                       t->p[P_CRATE] = (int16_t)rnd(128); break; }
             case 14: { track_t *t = &trk[rnd(NPART)];                           /* arp: mode and rhythm */
                        t->p[P_AMODE] = (int16_t)rnd(15); t->p[P_AOCT] = (int16_t)(1 + rnd(4));
                        t->p[P_AACC] = (int16_t)rnd(6); t->p[P_AHITS] = (int16_t)(1 + rnd(16));

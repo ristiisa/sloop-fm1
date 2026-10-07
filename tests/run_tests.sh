@@ -112,6 +112,9 @@ run "project formats (FUN4 / FUN3 / FUN2 / FUN1 -> FUN5), conditions, locks, cap
 $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/slicer_test" tests/slicer_test.c -lm
 mkdir -p build/slicer_demo
 run "SLICER: no clicks, timing, sync with the sequencer, STUT, cost, demos" "$OUT/slicer_test" build/slicer_demo
+$CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/color_test" tests/color_test.c -lm
+mkdir -p build/color_demo
+run "COLOR: OFF skipped, PHASR notches, WAH envelope, FOLD harmonics, RING sidebands, bounded, release, locks, cost" "$OUT/color_test" build/color_demo
 $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/regress" tests/regress.c -lm
 run "regression: golden renders, health, voices, CPU budget" "$OUT/regress" tests/golden.txt tests/cpu_baseline.txt
 # SLICE (tests/slice_test.c) needs a FELUCCA_SLICE=1 build; the engine is not built by default

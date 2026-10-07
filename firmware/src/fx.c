@@ -251,7 +251,7 @@ static void fx_buses(const int32_t *cho_in, const int32_t *dly_in, const int32_t
 }
 
 /* one block of the whole mix (shared with tests/hostsim.c): events -> each part
- * -> dist -> SLICER -> level / pan / sends -> drums (-> SLICER) -> buses -> master; out: stereo Q15 */
+ * -> dist -> COLOR -> SLICER -> level / pan / sends -> drums (-> COLOR -> SLICER) -> buses -> master; out: stereo Q15 */
 static void events_block(uint32_t n);                    /* seq.c */
 static void plk_block_in(void);                          /* seq.c: the parameter locks of the steps playing, */
 static void plk_block_out(void);                         /* in p[] while the block renders */
@@ -301,8 +301,8 @@ static void mix_part(track_t *t, uint32_t n)
     uint32_t i;
     int32_t g0 = 32767 - t->att, g1 = gain_next(t);
     if (track_render(t, b, n))
-        t->tail = 16;                                   /* blocks of DIST state to run out after the last voice */
-    else if ((!t->tail || !t->p[P_DIST] || !--t->tail) && !slicer_busy(t)) {
+        t->tail = 16;                                   /* blocks of DIST / COLOR state to run out after the last voice */
+    else if ((!t->tail || !(t->p[P_DIST] | t->p[P_COLOR]) || !--t->tail) && !slicer_busy(t)) {
         slicer_track(t, 0, n);                          /* (the SLICER's step clock runs on) */
         return;
     }
@@ -318,6 +318,8 @@ static void mix_part(track_t *t, uint32_t n)
         int32_t ga = mulq15(g0, duck.g0), gb = mulq15(g1, duck.g1);   /* mute x duck, ramped over the block */
         xmax = 0x7FFFFFFF / ((xmax > r ? xmax : r) | 1);   /* sends: loud chords at a high LEVEL */
         track_dist(t, b, n);
+        if (t->p[P_COLOR])
+            color_track(t, b, n);                       /* color.c */
         slicer_track(t, b, n);                          /* slicer.c: before the level, pan and sends */
         int32_t lvl0 = t->lvl ? t->lvl : lvl, dl = (lvl - lvl0) >> CTL_LOG2;   /* a new sound's trim: ramped */
         t->lvl = lvl;

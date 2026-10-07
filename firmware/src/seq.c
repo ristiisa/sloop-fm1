@@ -286,15 +286,15 @@ static uint8_t plk_seen;                      /* the plk_gen the locks playing w
 
 static uint32_t plk_ts(const track_t *t, uint32_t idx) { return trk_index(t) << 6 | (idx & 63u); }
 
-/* what a step can lock: the sound (ENV, LFO, FX sends, SLICER, EDIT, glide, detune, pan), not the
- * pattern, the arp, the key, the voice mode, the level or MUTE; the drum track: its SLICER */
+/* what a step can lock: the sound (ENV, LFO, FX sends, SLICER, COLOR, EDIT, glide, detune, pan), not the
+ * pattern, the arp, the key, the voice mode, the level or MUTE; the drum track: its SLICER and COLOR */
 static int plk_lockable(const track_t *t, uint32_t id)
 {
     if (is_drum(t))
-        return id >= P_SLCR && id <= P_SLDEPTH;
+        return (id >= P_SLCR && id <= P_SLDEPTH) || (id >= P_COLOR && id <= P_CRATE);
     return (id >= P_ATK && id <= P_ED_SHP) || (id >= P_LRATE && id <= P_LD_AMP) || (id >= P_DIST && id <= P_REV) ||
-           (id >= P_SLCR && id <= P_SLDEPTH) || id == P_GLIDE || id == P_DETUNE || id == P_PAN ||
-           (id >= P_E0 && id <= P_E7);
+           (id >= P_SLCR && id <= P_SLDEPTH) || (id >= P_COLOR && id <= P_CRATE) || id == P_GLIDE || id == P_DETUNE ||
+           id == P_PAN || (id >= P_E0 && id <= P_E7);
 }
 /* the range of a lock (EDIT: the engine the track asked for, as its p[]) */
 static const param_desc_t *plk_desc(const track_t *t, uint32_t id)
