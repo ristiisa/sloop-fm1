@@ -73,7 +73,9 @@ int main(int argc, char **argv)
                        t->p[P_AACC] = (int16_t)rnd(6); t->p[P_AHITS] = (int16_t)(1 + rnd(16));
                        t->p[P_ASTEPS] = (int16_t)(1 + rnd(16)); t->p[P_ARAT] = (int16_t)rnd(4);
                        t->p[P_AROT] = (int16_t)rnd(16); t->p[P_ASYNC] = (int16_t)rnd(3);
-                       t->p[P_ARHYM] = (int16_t)rnd(16); t->p[P_ADEJA] = (int16_t)rnd(128); break; }
+                       t->p[P_ARHYM] = (int16_t)rnd(16); t->p[P_ADEJA] = (int16_t)rnd(128);
+                       t->p[P_ASHIFT] = (int16_t)rnd(15) - 7; t->p[P_ACYC] = (int16_t)(2 + rnd(7));
+                       t->p[P_SCALE] = (int16_t)rnd(16); t->p[P_ROOT] = (int16_t)rnd(12); break; }
             default: {                                                             /* keys: press / release */
                 uint32_t key = rnd(27);
                 if (rnd(2)) held |= 1u << key; else held &= ~(1u << key);

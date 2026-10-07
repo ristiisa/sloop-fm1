@@ -55,6 +55,7 @@ enum {                          /* per-track parameters */
     P_CHORD,                                   /* chord mode: one key plays a chord of the scale (seq.c) */
     P_AACC, P_AHITS, P_ASTEPS, P_ARAT,         /* arp rhythm: accents, euclidean HITS of STEPS, ratchet (seq.c) */
     P_AROT, P_ASYNC, P_ARHYM, P_ADEJA,         /* arp: rotate, restart, rhythm masks, deja vu (seq.c) */
+    P_ASHIFT, P_ACYC,                          /* arp: degrees a cycle, cycles before it starts over (seq.c) */
     P_E0, P_E1, P_E2, P_E3, P_E4, P_E5, P_E6, P_E7,
     P_COUNT
 };
@@ -205,6 +206,8 @@ typedef struct track {
     uint8_t arp_new;             /* a chord just started: its first note now */
     uint8_t arp_dv[16];          /* DEJA: a random seed per grid place (the loop) */
     uint8_t arp_ds, arp_dk;      /* DEJA: the seed of this step, the draws taken from it */
+    uint8_t arp_cyc;             /* SHIFT: the cycle of the order playing, 0..CYC - 1 */
+    uint32_t arp_c0;             /* .. the place in the order it started at */
     uint32_t arp_off;            /* units to the note-off */
     uint32_t arp_sub, arp_sl;    /* ratchet: units to the next hit, units between hits */
     /* sequencer: synth parts step[], the drum track dstep[] (16 lanes) */

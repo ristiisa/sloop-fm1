@@ -9,6 +9,8 @@ static const char *const N_ARAT[] = {"X1", "X2", "X3", "X4"};
 static const char *const N_ASYNC[] = {"NOTE", "BAR", "FREE"};   /* seq.c AS_* */
 static const char *const N_ARHYM[] = {"OFF", "QRTR", "8TH", "OFFB", "GALOP", "SKIP", "DOT8", "TRES", "CINQ",
                                       "SON32", "SON23", "RUMBA", "BOSSA", "SHIKO", "SOUK", "GAHU"};   /* seq.c ARP_RHYM */
+static const char *const N_ASHIFT[] = {"-7", "-6", "-5", "-4", "-3", "-2", "-1", "OFF", "+1", "+2", "+3", "+4", "+5",
+                                       "+6", "+7", 0};   /* F_INT: one name a value */
 static const char *const N_DIV[] = {"1/4", "1/8", "1/16", "1/32", "8T", "16T"};
 static const char *const N_SCALE[] = {"CHR", "MAJ", "MIN", "DOR", "MIX", "PEN", "MPEN", "HARM",
                                     "PHRY", "LYD", "LOC", "MEL", "BLUES", "WHOLE", "DIMHW", "DIMWH"};
@@ -96,6 +98,8 @@ static const param_desc_t TP[P_COUNT] = {
     [P_ASYNC] = PE("SYNC", N_ASYNC, 0),
     [P_ARHYM] = PE("RHYM", N_ARHYM, 0),
     [P_ADEJA] = PD("DEJA", F_PCT, 0, 127, 0),       /* 0: fresh random, 127: a locked loop */
+    [P_ASHIFT] = {"SHIFT", F_INT, -7, 7, 0, N_ASHIFT, 0},   /* degrees of the scale a cycle (CHR: semitones) */
+    [P_ACYC] = PD("CYC", F_INT, 2, 8, 4),
 };
 /* a preset's extra parameters (preset_t.x) into p, each clamped to its range */
 static void preset_extras(int16_t *p, const preset_t *pr)
@@ -316,6 +320,7 @@ static const page_t PAGES[] = {
     {"ARP 2", FAM_ARP, SC_TRACK, GR_NONE, {P_ASWING, P_APROB, P_AHOLD, P_AORDER}},
     {"ARP 3", FAM_ARP, SC_TRACK, GR_NONE, {P_AACC, P_AHITS, P_ASTEPS, P_ARAT}},
     {"ARP 4", FAM_ARP, SC_TRACK, GR_NONE, {P_AROT, P_ASYNC, P_ARHYM, P_ADEJA}},
+    {"ARP 5", FAM_ARP, SC_TRACK, GR_NONE, {P_ASHIFT, P_ACYC, 0xFF, 0xFF}},
     {"STEP", FAM_SEQ, SC_STEP, GR_ROLL, {0, 1, 2, 3}},
     {"PATTERN", FAM_SEQ, SC_TRACK, GR_STEPS, {P_SLEN, P_SDIV, P_SSWING, P_SGATE}},
     {"SONG", FAM_SEQ, SC_SONG, GR_NONE, {0xFF, 0xFF, 0xFF, 0xFF}},

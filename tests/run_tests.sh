@@ -83,7 +83,7 @@ $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/hostsim" tests/hostsim.c -lm
 $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/scale_test" tests/scale_test.c -lm
 run "scales: white-key mapping and note lifecycle" "$OUT/scale_test"
 $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/arp_test" tests/arp_test.c -lm
-run "arp: the modes on C E G B, accents, HITS of STEPS, ratchets, ROT, SYNC, RHYM, DEJA, recording" "$OUT/arp_test"
+run "arp: the modes on C E G B, accents, HITS of STEPS, ratchets, ROT, SYNC, RHYM, DEJA, SHIFT, recording" "$OUT/arp_test"
 $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/mutate_test" tests/mutate_test.c -lm
 run "mutate: invariants over thousands of passes, kicks on the beats, a little a pass, exact undo" "$OUT/mutate_test"
 $CC -O2 -w -Ibuild/gen -Ifirmware/src -Ifirmware/hal -o "$OUT/cond_test" tests/cond_test.c -lm
@@ -94,7 +94,7 @@ run "DSP render (ANALOG preset 0)" "$OUT/hostsim" 0 0 1 "$OUT/render.wav"
 mkdir -p build/tracks_demo
 run "TRACKS: 4-track pattern, live recording (lengths, swing), voice budget, engine switch, cost" env TRACKS=build/tracks_demo "$OUT/hostsim" 0 0 1 "$OUT/tracks.wav"
 $CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/project_test" tests/project_test.c -lm
-run "project formats (FUN5 / FUN4 / FUN3 / FUN2 / FUN1 -> FUN6), conditions, locks, capture / apply, autosave" "$OUT/project_test"
+run "project formats (FUN6 / FUN5 / FUN4 / FUN3 / FUN2 / FUN1 -> FUN7), conditions, locks, capture / apply, autosave" "$OUT/project_test"
 $CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/slicer_test" tests/slicer_test.c -lm
 mkdir -p build/slicer_demo
 run "SLICER: no clicks, timing, sync with the sequencer, STUT, cost, demos" "$OUT/slicer_test" build/slicer_demo
