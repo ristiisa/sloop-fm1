@@ -69,6 +69,7 @@ static struct {
     uint8_t step_page;           /* SEQ layer: the 16 steps shown (page x 16) */
     uint16_t step_held;          /* SEQ layer: the step keys held (white key index) */
     uint32_t step_sess;          /* SEQ layer: the undo session of this hold */
+    uint8_t plk;                 /* SEQ layer locked open: a sound page shown, its knobs lock the held steps */
     uint8_t hold_kind;           /* a hold to confirm: 1 = clear the track (REC), 2 = save (SAVE) */
     uint32_t hold_t0;            /* (ms) */
     uint8_t hold_trk;
@@ -84,6 +85,16 @@ static struct {
 } ui;
 
 static const page_t *cur_page(void) { return &PAGES[ui.page]; }
+/* P-LOCK: the SEQ layer locked open shows a sound page (ui_layers.c steps_lock_edit) */
+static int plk_view(void) { return ui.plk && ly_lock == LY_STEP && ui.layer == LY_STEP; }
+static uint32_t plk_held(void)               /* the first step key held (its step), NSTEP = none */
+{
+    uint32_t w;
+    for (w = 0; w < 16u; w++)
+        if ((ui.step_held >> w) & 1u)
+            return ui.step_page * 16u + w;
+    return NSTEP;
+}
 static int32_t accel(uint32_t role, int32_t s, int32_t range);   /* ui_input.c */
 static void layer_screen_draw(void);                            /* ui_layers.c */
 static void hold_screen_draw(void);
@@ -132,9 +143,10 @@ static void step_clear(step_t *st)
     st->time = ST_REST;
 }
 
-/* undo / redo (EDIT + OCT- / OCT+): the marked pattern and the one now swap places */
+/* undo / redo (EDIT + OCT- / OCT+): the marked pattern (its locks too) and the one now swap places */
 static int undo_swap(int redo)
 {
+    plk_t now[PLK_MAX];                           /* (the locks now) */
     track_t *t;
     int16_t len;
     if (!undo.valid || (uint32_t)!!redo != undo.undone)
@@ -152,6 +164,9 @@ static int undo_swap(int redo)
             undo.cond[i] = c;
         }
     }
+    plk_save(t, now);
+    plk_restore(t, undo_lk);
+    memcpy(undo_lk, now, sizeof now);
     len = t->p[P_SLEN];
     t->p[P_SLEN] = undo.len;
     undo.len = len;

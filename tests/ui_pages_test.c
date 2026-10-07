@@ -185,9 +185,13 @@ int UI_TEST_MAIN(int argc, char **argv)
     check(ly_lock == LY_PLAY && ui.layer == LY_PLAY && cur_fam() != FAM_FX, "locked, FX tapped: unlocked, no FX page");
     go_home(); frame();
     press(B_SEQ); frames(3); tap(B_HOME); release(B_SEQ); frames(3);
-    press(B_FX); frames(12);
-    check(ly_lock == LY_PLAY && ui.layer == LY_FX, "locked SEQ, FX held: unlocked, the FX layer");
-    release(B_FX); frames(2); check(ui.layer == LY_PLAY, "and FX let go: back to playing");
+    press(B_ARP); frames(12);
+    check(ly_lock == LY_PLAY && ui.layer == LY_ROLL, "locked SEQ, ARP held: unlocked, the ARP layer");
+    release(B_ARP); frames(2); check(ui.layer == LY_PLAY, "and ARP let go: back to playing");
+    press(B_SEQ); frames(3); tap(B_HOME); release(B_SEQ); frames(3);
+    tap(B_ENV); frames(2);
+    check(ly_lock == LY_STEP && plk_view() && cur_fam() == FAM_ENV, "locked SEQ, ENV: its page inside the lock (P-LOCK)");
+    tap(B_HOME); frames(2); check(ly_lock == LY_PLAY && !plk_view(), "and HOME: let go");
     press(B_FX); frames(3); tap(B_HOME); release(B_FX); frames(3);
     press(B_HOME); frames(50); release(B_HOME); frames(2);
     check(ui.menu && ly_lock == LY_PLAY, "locked, HOME held: the menu, unlocked");

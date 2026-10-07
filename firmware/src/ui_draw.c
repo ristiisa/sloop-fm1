@@ -45,7 +45,8 @@ static void draw_head(void)
     uint32_t rec = (song.rec >> song.sel) & 1u ? 2u : song.rec != 0u;   /* 2 the selected track armed, 1 another */
     uint32_t sig = (uint32_t)song.playing * 3u + rec * 5u + (uint32_t)(song.octave + 8) * 11u + song.sel * 13131u +
                    (ui.msg_t ? str_hash(7u, ui.msg) : 0u) + (uint32_t)song.g[G_BPM] * 101u + (ui.bpm_t != 0) * 31u +
-                   (uint32_t)batt_shown() * 7777u + (usb.config && !usb.suspended) * 99991u;
+                   (uint32_t)batt_shown() * 7777u + (usb.config && !usb.suspended) * 99991u +
+                   (plk_view() ? plk_held() * 131u + 7919u : 0u);
     if (!ui.force && sig == ui.head_sig)
         return;
     ui.head_sig = sig;
@@ -70,7 +71,15 @@ static void draw_head(void)
         x += 14;
     }
     x = cv_text(x, 1, &FONT_S, b, ui.bpm_t ? C_WHITE : C_HI);   /* white while SELECT turns it */
-    if (song.octave) {
+    if (plk_view()) {                                 /* P-LOCK (the keys are steps: no octave), the step held */
+        str_cpy(b, "P-LOCK", sizeof b);
+        if (plk_held() < NSTEP) {
+            str_cpy(b, "LOCK ", sizeof b);
+            fmt_int(b + 5, (int32_t)plk_held() + 1);
+        }
+        cv_rect(x + 10, 1, text_w(&FONT_S, b) + 6, 17, TE_RED);
+        cv_text(x + 13, 1, &FONT_S, b, C_BLACK);
+    } else if (song.octave) {
         str_cpy(b, song.octave > 0 ? "+" : "", 4);
         fmt_int(b + str_len(b), song.octave);
         cv_text(x + 12, 1, &FONT_S, "OCT", C_GRAY);
@@ -139,7 +148,7 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
     str_cpy(key + str_len(key), u, 8);
     {
         uint32_t n = str_len(key);
-        key[n] = (char)('A' + (vc == C_WHITE) + (vc == C_DIM) * 2);
+        key[n] = (char)('A' + (vc == C_WHITE) + (vc == C_DIM) * 2 + (vc == TE_RED) * 4);
         key[n + 1] = (char)(' ' + (ratio < 0 ? 0 : 1 + ratio / 20));
         key[n + 2] = (char)(icon == ICON_NONE ? '~' : '!' + icon % 90u);   /* same label, other icon */
         key[n + 3] = 0;
@@ -708,7 +717,7 @@ static void draw_foot(void)
 {
     char s[48], pn[16], en[10], ti[20];
     const track_t *t = TSEL;
-    uint32_t sig;
+    uint32_t sig, bank, lmask;
     const page_t *pg = cur_page();
     const engine_t *e = ENGINES[TSEL->eng_req % NENGINES];
     const char *ename = is_drum(t) ? "DRUM" : e->name;
@@ -744,10 +753,12 @@ static void draw_foot(void)
     s[str_len(s)] = (char)('1' + song.sel);
     str_cpy(s + str_len(s), pn, 16);
     str_cpy(s + str_len(s), ti, sizeof ti);
+    bank = plk_view() ? ui.step_page : ui.bank;       /* (P-LOCK: the steps of the SEQ page) */
+    lmask = plk_marks(t, bank);
     {   /* step markers: the playhead only when it is in the shown bank, the cursor only in SEQ */
-        uint32_t ph = song.playing && t->seq_idx / 16u == ui.bank ? t->seq_idx : 0xFFu;
+        uint32_t ph = song.playing && t->seq_idx / 16u == bank ? t->seq_idx : 0xFFu;
         sig = str_hash(0x9E3779B9u, s) + ph * 97u + (song.seq_mode ? ui.cursor : 0xFFu) * 3001u + steps_hash(t) +
-              ui.bank * 7u + (uint32_t)t->p[P_SLEN] * 13u;
+              bank * 7u + (uint32_t)t->p[P_SLEN] * 13u + lmask * 2654435761u;
     }
     if (!ui.force && sig == ui.foot_sig)
         return;
@@ -755,8 +766,8 @@ static void draw_foot(void)
     cv_begin(240, H_FOOT, C_BLACK);
     {
         uint32_t i;
-        for (i = 0; i < 16u; i++) {                   /* row 1: the cursor's bank as 16 thin bars */
-            uint32_t si = ui.bank * 16u + i;
+        for (i = 0; i < 16u; i++) {                   /* row 1: the cursor's bank as 16 thin bars, a lock a dot over */
+            uint32_t si = bank * 16u + i;
             int32_t sx = 6 + (int32_t)i * 14 + (int32_t)(i / 4u) * 4;
             const step_t *st = &t->step[si];
             if (si >= (uint32_t)t->p[P_SLEN])
@@ -767,6 +778,8 @@ static void draw_foot(void)
                 cv_rect(sx, 10, 1, 1, C_DIM);
             if ((song.playing && si == t->seq_idx) || (song.seq_mode && si == ui.cursor))
                 cv_rect(sx - 1, 13, 3, 3, C_WHITE);
+            if ((lmask >> i) & 1u)
+                cv_rect(sx, 0, 2, 2, TE_RED);
         }
     }
     x = 4;
@@ -878,8 +891,10 @@ static void draw_columns(void)
         return;
     }
     for (c = 0; c < 4u; c++) {
-        int16_t *vp;
+        int16_t *vp, lv = 0;
         const param_desc_t *d = page_desc(cur_page(), c, &vp);
+        int32_t v;
+        uint32_t lk;
         if (!d || !d->label || d->label[0] == '-') {
             draw_column(c, "", "", "", C_HI, -1, ICON_AUTO);
             continue;
@@ -890,14 +905,18 @@ static void draw_columns(void)
             draw_column(c, "USB", val, unit, C_HI, -1, ICON_AUTO);
             continue;
         }
+        /* P-LOCK, a step key held: the lock of its step (red), else the track's value */
+        lk = plk_view() && cur_page()->scope != SC_GLOBAL && plk_held() < NSTEP &&
+             plk_get(TSEL, plk_held(), cur_page()->id[c], &lv);
+        v = lk ? lv : *vp;
         if (cur_page()->id[c] == G_INFO && cur_page()->scope == SC_GLOBAL) {
             fmt_int(val, (int32_t)(song.cpu_q8 * 100u / 256u));
             unit = "%";
         } else {
-            param_format(d, *vp, val, &unit);
+            param_format(d, v, val, &unit);
         }
-        draw_column(c, d->label, val, unit, VAL(c), d->fmt == F_ENUM && d->max < 2 ? -1 : RATIO(d, *vp),
-                    param_icon(d, *vp));
+        draw_column(c, d->label, val, unit, lk ? TE_RED : VAL(c), d->fmt == F_ENUM && d->max < 2 ? -1 : RATIO(d, v),
+                    param_icon(d, v));
     }
 }
 
@@ -942,7 +961,7 @@ static void ui_draw(void)
         if (!ui.msg_t)
             ui_message("ERASED");
     }
-    if (!ui.menu && (ui.layer != LY_PLAY || ui.hold_kind)) {   /* a layer held / a hold to confirm */
+    if (!ui.menu && ((ui.layer != LY_PLAY && !plk_view()) || ui.hold_kind)) {   /* a layer held / a hold to confirm */
         if (ui.hold_kind)
             hold_screen_draw();
         else

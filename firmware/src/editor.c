@@ -221,6 +221,8 @@ static void ed_step_in(track_t *t, uint32_t i, const uint8_t *a, uint32_t na)
     uint32_t k;
     if (is_drum(t)) {
         ed_dstep_from_old(&t->dstep[i], a);
+        if (!dstep_mask(&t->dstep[i]))
+            plk_clear_step(t, i);                        /* (an empty step: its locks go with it) */
         return;
     }
     {
@@ -237,6 +239,8 @@ static void ed_step_in(track_t *t, uint32_t i, const uint8_t *a, uint32_t na)
         } else {
             st->lvl = st->rat = 0;
         }
+        if (!step_on(st))
+            plk_clear_step(t, i);
     }
 }
 static void ed_shadow(void)                              /* the editor is in sync */
@@ -906,8 +910,10 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             for (i = 0; i < DRUM_LANES; i++)
                 if ((on >> i) & 1u)
                     dstep_set(d, i, (lv >> (2u * i)) & 3u, (rt >> (2u * i)) & 3u);
-            if (!on)
+            if (!on) {
                 TDRUM->cond[a[0]] = CN_ALWAYS;
+                plk_clear_step(TDRUM, a[0]);
+            }
             fm1_irq_on();
             ui.force = 1;
             if (song.sel == TRK_DRUM)

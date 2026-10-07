@@ -7,7 +7,9 @@
  *   EDIT  erase that sound / note (seq.c)  knobs: SHIFT  LENGTH x2 / half  TRANSPOSE  MUTATE;  OCT- undo  OCT+ redo
  *   ARP   note repeat (seq.c roll)         knobs: RATE
  *   SEQ   steps 1..16 of the page          knobs: SOUND / NOTE  DIV  SWING  LENGTH;  a step key held:
- *         (black keys 1..4: pages)                SOUND / NOTE  LEVEL  RATCHET  CONDITION
+ *         (black keys 1..4: pages)                SOUND / NOTE  LEVEL  RATCHET  CONDITION;  step keys + OCT-: their locks go
+ *         locked open (SEQ + HOME), ENV LFO FX EDIT show their pages (P-LOCK): a step key held, the
+ *         page's knobs lock its parameters on that step; SEQ: the steps again
  *   SCL   any key: the key of the song     knobs: CHORD  SCALE  KEYS  TRANSPOSE
  *   GLO   keys 1..4 mute, 5..8 solo,       knobs: the levels of tracks 1..4
  *         the last white key: tap tempo
@@ -20,6 +22,7 @@ static const uint8_t LAYER_BTN[LY_COUNT] = {NB, B_FX, B_EDIT, B_ARP, B_SEQ, B_SC
 static const char *const LAYER_NAME[LY_COUNT] = {"", "punch", "erase", "roll", "steps", "key", "mix", "song"};
 static void section_store(uint32_t s);                  /* project.c */
 static void section_load(uint32_t s);
+static void edit_param(uint32_t slot, int32_t steps);   /* ui_input.c */
 static uint8_t sec_armed;                               /* store over a used section: the key again within 3 s */
 static uint32_t sec_armed_ms;
 #define TAP_MS 450u                                     /* a press shorter than this, untouched: a tap */
@@ -54,6 +57,7 @@ static void pattern_rotate(track_t *t, int32_t d)       /* every step (its condi
     uint8_t kc;
     layer_undo_mark(t);
     fm1_irq_off();
+    plk_rotate(t, len, d);
     if (d > 0) {
         keep = t->step[len - 1u];
         kc = t->cond[len - 1u];
@@ -77,7 +81,7 @@ static void pattern_rotate(track_t *t, int32_t d)       /* every step (its condi
 }
 static void pattern_length(track_t *t, int32_t d)       /* x2 (the pattern again after itself), or half */
 {
-    uint32_t len = trk_len(t), i;
+    uint32_t len = trk_len(t), i, full = 0;
     layer_undo_mark(t);
     fm1_irq_off();
     if (d > 0 && len * 2u <= NSTEP) {
@@ -85,6 +89,7 @@ static void pattern_length(track_t *t, int32_t d)       /* x2 (the pattern again
             t->step[len + i] = t->step[i];
             t->cond[len + i] = t->cond[i];
         }
+        full = !plk_double(t, len);
         t->p[P_SLEN] = (int16_t)(len * 2u);
     } else if (d < 0 && len >= 2u) {
         t->p[P_SLEN] = (int16_t)(len / 2u);
@@ -93,7 +98,7 @@ static void pattern_length(track_t *t, int32_t d)       /* x2 (the pattern again
     {
         char b[8];
         fmt_int(b, t->p[P_SLEN]);
-        ui_say("STEPS ", b);
+        ui_say(full ? "LOCKS FULL: STEPS " : "STEPS ", b);
     }
 }
 static void pattern_transpose(track_t *t, int32_t d)    /* every note a semitone up / down (synth parts) */
@@ -189,6 +194,8 @@ static void step_up(uint32_t w)
         step_clear(&t->step[idx]);
     if (!step_sounds(t, idx))
         t->cond[idx] = CN_ALWAYS;
+    if (!trk_step_on(t, idx))
+        plk_clear_step(t, idx);                         /* (an empty step: its locks go with it) */
     fm1_irq_on();
     sync_reload = 1;
 }
@@ -241,6 +248,57 @@ static void steps_held_edit(uint32_t knob, int32_t s)
     }
     fm1_irq_on();
     sync_reload = 1;
+}
+
+/* P-LOCK (the SEQ layer locked open, a sound page shown): KNOB k with step keys held gives the page's
+ * parameter k its own value on those steps, from the step's lock (else the track's value) */
+static void plk_open(uint32_t fam)                      /* ENV LFO FX EDIT inside the SEQ lock */
+{
+    open_family(fam);
+    if (!ui.plk)
+        ui_message(is_drum(TSEL) ? "P-LOCK: SLICER" : "P-LOCK: HOLD A STEP");
+    ui.plk = 1;
+    ui.force = 1;
+}
+static void steps_lock_edit(uint32_t k, int32_t s)
+{
+    track_t *t = TSEL;
+    const page_t *pg = cur_page();
+    const param_desc_t *d;
+    int16_t *vp;
+    uint32_t w, id = pg->id[k], full = 0;
+    step_pend_off &= (uint16_t)~ui.step_held;            /* (turned: kept when let go) */
+    if (!(d = page_desc(pg, k, &vp)) || (pg->scope != SC_TRACK && pg->scope != SC_ENGINE) || !plk_lockable(t, id)) {
+        ui_message("NO LOCK HERE");
+        return;
+    }
+    layer_undo_mark(t);
+    s = accel(EN_K1 + k, s, d->max - d->min);
+    fm1_irq_off();
+    for (w = 0; w < 16u; w++) {
+        uint32_t idx = ui.step_page * 16u + w;
+        int16_t v = *vp;
+        if (!((ui.step_held >> w) & 1u) || idx >= trk_len(t))
+            continue;
+        plk_get(t, idx, id, &v);
+        full |= !plk_set(t, idx, id, v + s);
+    }
+    fm1_irq_on();
+    if (full)
+        ui_message("LOCKS FULL");
+}
+static void steps_lock_clear(void)                      /* step keys + OCT-: their locks go */
+{
+    track_t *t = TSEL;
+    uint32_t w, n = 0;
+    layer_undo_mark(t);
+    step_pend_off &= (uint16_t)~ui.step_held;
+    fm1_irq_off();
+    for (w = 0; w < 16u; w++)
+        if ((ui.step_held >> w) & 1u)
+            n += plk_clear_step(t, ui.step_page * 16u + w);
+    fm1_irq_on();
+    ui_message(n ? "LOCKS CLEARED" : "NO LOCKS");
 }
 
 /* ------------------------------------------------------------- GLO --- */
@@ -395,7 +453,12 @@ static void layer_knobs(uint32_t layer)
                 song.g[G_ROLL] = (int16_t)clamp(song.g[G_ROLL] + s, 0, 4);
             break;
         case LY_STEP:
-            if (ui.step_held) {
+            if (plk_view()) {                           /* P-LOCK: the page's knobs */
+                if (ui.step_held)
+                    steps_lock_edit(k, s);
+                else
+                    edit_param(k, s);
+            } else if (ui.step_held) {
                 if (k == 0u && is_drum(t))
                     pen_lane = (uint8_t)clamp(pen_lane + s, 0, DRUM_LANES - 1);
                 else
@@ -451,13 +514,15 @@ typedef struct {
     uint16_t bg, fg, top;        /* fill, text, the 3-pixel top band (0 = none) */
     uint8_t marks;               /* small marks under the label (a ratchet), 0 = none */
     uint8_t cond;                /* a corner mark: the step has a condition */
+    uint8_t lock;                /* a corner mark: the step holds parameter locks */
 } tile_t;
 
 static void tiles_draw(const tile_t *tl, uint32_t *cache)
 {
     uint32_t r, c, sig = 7u;
     for (r = 0; r < 16u; r++)
-        sig = studio_hash(sig * 31u + tl[r].bg * 3u + tl[r].fg * 5u + tl[r].top * 7u + tl[r].marks + tl[r].cond * 11u, tl[r].lab);
+        sig = studio_hash(sig * 31u + tl[r].bg * 3u + tl[r].fg * 5u + tl[r].top * 7u + tl[r].marks + tl[r].cond * 11u +
+                          tl[r].lock * 13u, tl[r].lab);
     if (!ui.force && sig == *cache)
         return;
     *cache = sig;
@@ -475,6 +540,8 @@ static void tiles_draw(const tile_t *tl, uint32_t *cache)
                 cv_rect(x + 22 + (int32_t)m * 5, 27, 3, 3, t->fg);
             if (t->cond)
                 cv_rect(x + 48, 7, 5, 5, t->fg);
+            if (t->lock)                                /* (left of the condition's mark) */
+                cv_rect(x + 41, 8, 4, 4, t->fg);
         }
         cv_blit(0, 40 + r * 36);
     }
@@ -626,6 +693,7 @@ static void layer_screen_draw(void)
             tl[i].fg = on ? C_BLACK : TE_G3;
             tl[i].marks = (uint8_t)(on ? rt : 0u);
             tl[i].cond = (uint8_t)(step_sounds(t, idx) && t->cond[idx]);
+            tl[i].lock = (uint8_t)(plk_count(t, idx) != 0u);
             if (song.playing && idx == t->seq_idx)
                 tl[i].top = C_WHITE;
             if ((ui.step_held >> i) & 1u)

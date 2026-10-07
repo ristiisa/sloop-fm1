@@ -7,9 +7,10 @@
  * left it.
  *
  * Formats: 6 ("FUN6", written, SLOOP 2.5): today's P_COUNT / G_COUNT, 10-byte steps (levels and
- * ratchets; the drum track: 16 lanes), then a condition per step of every track (seq.c CN_*). Read and
- * converted: 5 ("FUN5", SLOOP 2.4: PROJ_NP_V5 parameters, mapped by id up to P_ARAT, ROT / SYNC / RHYM /
- * DEJA their defaults, every condition ALWAYS), 4 ("FUN4", SLOOP 2.0..2.3: PROJ_NP_V4
+ * ratchets; the drum track: 16 lanes), then a condition per step of every track (seq.c CN_*) and the
+ * parameter locks (PLK_MAX, at the end: checked on load, plk_apply). Read and converted: 5 ("FUN5",
+ * SLOOP 2.4: PROJ_NP_V5 parameters, mapped by id up to P_ARAT, ROT / SYNC / RHYM / DEJA their defaults,
+ * every condition ALWAYS, no locks), 4 ("FUN4", SLOOP 2.0..2.3: PROJ_NP_V4
  * parameters, mapped by id up to P_CHORD, the arp rhythm their defaults), 3 ("FUN3", SLOOP 1.x: 8-byte steps, the
  * drum track's notes become its lanes, the swings x 0.8 for the MPC scale), 2 ("FUN2") and 1 ("FUN1"),
  * which held PROJ_NP_V2 parameters per track, mapped by count as user presets are (the first
@@ -19,8 +20,8 @@
  *
  * Built on the host too (tests/project_test.c, -DPROJ_HOST): the part above the #ifndef
  * PROJ_HOST needs core.h, params.c (TP), drums.c (the lanes), the engines and trk_def_engine (ui.c). */
-#define PROJ_MAGIC 0x46554E36u                 /* "FUN6": four tracks, P_COUNT parameters each, 10-byte steps, conditions */
-#define PROJ_MAGIC_V5 0x46554E35u              /* "FUN5": SLOOP 2.4, PROJ_NP_V5 parameters, no conditions; read only */
+#define PROJ_MAGIC 0x46554E36u                 /* "FUN6": four tracks, P_COUNT parameters each, 10-byte steps, conditions, locks */
+#define PROJ_MAGIC_V5 0x46554E35u              /* "FUN5": SLOOP 2.4, PROJ_NP_V5 parameters, no conditions, no locks; read only */
 #define PROJ_MAGIC_V4 0x46554E34u              /* "FUN4": SLOOP 2.0..2.3, PROJ_NP_V4 parameters; read only */
 #define PROJ_MAGIC_V3 0x46554E33u              /* "FUN3": SLOOP 1.x; read only */
 #define PROJ_MAGIC_V2 0x46554E32u              /* "FUN2": four tracks, PROJ_NP_V2 parameters; read only */
@@ -45,6 +46,7 @@ typedef struct {
     uint8_t sel, rsv[3];                       /* the selected track */
     proj_trk_t t[NTRK];
     uint8_t cond[NTRK][NSTEP];                 /* the step conditions (seq.c CN_*, 0 = ALWAYS) */
+    plk_t lk[PLK_MAX];                         /* the parameter locks (seq.c plk_*) */
     uint32_t sum;
 } project_t;
 typedef struct {                               /* a track of format 5, read only */
@@ -110,6 +112,8 @@ typedef struct {                               /* format 1 (until 0.5 beta), rea
 } project_v1_t;
 _Static_assert(sizeof(project_v2_t) == 2552u && sizeof(project_v1_t) == 688u && sizeof(project_v3_t) == 2584u &&
                sizeof(project_v4_t) == 3112u && sizeof(project_v5_t) == 3144u, "formats 1 .. 5 as they were stored");
+_Static_assert(sizeof(plk_t) == 4u && sizeof(project_t) == sizeof(project_v5_t) + 32u + NTRK * NSTEP + 4u * PLK_MAX,
+               "format 6: format 5, ROT..DEJA, the conditions and the locks");
 project_t proj_slot[4] __attribute__((section(".noinit")));
 
 static uint32_t proj_hash(const void *p, uint32_t n)   /* FNV-1a over n bytes */
@@ -333,12 +337,30 @@ static void proj_capture(project_t *p)        /* what is playing now, as a proje
     p->sel = song.sel;
     for (i = 0; i < NTRK; i++) {
         memcpy(p->t[i].p, trk[i].p, sizeof trk[i].p);
+        plk_own(&trk[i], p->t[i].p);                   /* (a lock playing: the track's own value) */
         p->t[i].engine = trk[i].eng_req;
         p->t[i].preset = trk[i].preset;
         memcpy(p->t[i].step, trk[i].step, sizeof trk[i].step);
         memcpy(p->cond[i], trk[i].cond, sizeof trk[i].cond);
     }
+    memcpy(p->lk, plk, sizeof p->lk);
     p->sum = proj_sum(p);
+}
+
+/* a project's locks into the working pool, each checked: a lockable parameter of its track, its value
+ * into the range (EDIT: of the track's engine), one per step and parameter, PLK_STEP a step; the rest
+ * is dropped */
+static void plk_apply(const plk_t *lk)
+{
+    uint32_t i;
+    memset(plk, 0, sizeof plk);
+    for (i = 0; i < PLK_MAX; i++) {
+        const track_t *t = &trk[(lk[i].ts >> 6) & 3u];
+        uint32_t id = lk[i].id - 1u;
+        if (lk[i].id && id < P_COUNT && plk_lockable(t, id) && plk_find(lk[i].ts, id) < 0)
+            plk_set(t, lk[i].ts & 63u, id, lk[i].v);
+    }
+    plk_gen++;
 }
 
 /* a project's tracks (and its globals, all: a load; or only the drum level / reverb: a song
@@ -354,6 +376,7 @@ static void proj_apply(const project_t *p, int all)
         track_t *t = &trk[k];
         const proj_trk_t *s = &p->t[k];
         uint32_t e = k < NPART ? s->engine % NENGINES : 0u;
+        plk_drop(t);                                    /* (the song in the ISR: the old locks out of p[] first) */
         t->eng_req = (uint8_t)e;
         t->user = 0;                                    /* (no user preset slot is saved) */
         for (i = 0; i < P_COUNT; i++) {                 /* every value back inside its range */
@@ -377,6 +400,7 @@ static void proj_apply(const project_t *p, int all)
                     st->note[j] &= 127u;
             }
     }
+    plk_apply(p->lk);
 }
 
 #ifndef PROJ_HOST

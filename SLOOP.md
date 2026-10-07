@@ -117,7 +117,7 @@ Every function button has two lives. **Tap** it (press and let go, touching noth
 
 The tiles are four rows of four, keys 1–4, 5–8, 9–12, 13–16. To find them without looking at the screen, the first key of each row (1, 5, 9, 13) glows dimly while a layer is held, and on the drum track; the keys at full light are what is on.
 
-**Lock a layer:** hold its button and tap **HOME** — the layer stays open when you let the button go, both hands free for the keys and the knobs (*LOCK* on the screen, the button blinks). Any other button lets it go (HOME, the layer's own button, ENV…) and does only that; PLAY, REC and OCT− / OCT+ keep working inside it.
+**Lock a layer:** hold its button and tap **HOME** — the layer stays open when you let the button go, both hands free for the keys and the knobs (*LOCK* on the screen, the button blinks). Any other button lets it go (HOME, the layer's own button, ENV…) and does only that; PLAY, REC and OCT− / OCT+ keep working inside it. The SEQ layer keeps ENV, LFO, FX and EDIT: they show their sound pages inside it, to lock sounds on steps ([P-LOCK](#p-lock--a-steps-own-sound)).
 
 | Hold | Keys | KNOB 1 · 2 · 3 · 4 | Tap |
 | --- | --- | --- | --- |
@@ -240,6 +240,22 @@ The 16 white keys are the 16 steps of the page; the lit ones play. The first fou
   - **1ST** / **!1ST**: only the first time round after PLAY (or a section) / every time but the first.
   - Conditions move with their steps: EDIT's SHIFT and LENGTH ×2, undo / redo, the sections and the saved projects keep them; erasing a step or clearing the track takes them away; a note recorded into an empty step starts ALWAYS, one added to a step keeps its condition.
 - **No step held:** KNOB 1 the sound / note to set · KNOB 2 **DIV** (1/4 … 1/32, triplets) · KNOB 3 **SWING** of the track · KNOB 4 **LENGTH** (1–64 steps; each track loops on its own length, polymeters stay in phase).
+- **Step keys held + OCT−:** their parameter locks go (*LOCKS CLEARED*), the steps stay. A step with locks has a small square in the corner of its tile.
+
+### P-LOCK — a step's own sound
+
+A step can play with its own value of a sound parameter (Elektron's parameter locks): the filter opened on one note, a longer decay on one bass note, more reverb on the last hit of the bar. While that step plays — and the tied steps after it — the track plays with the locked value; from the next step on, with its own again.
+
+1. Hold **SEQ**, tap **HOME**: the steps are locked open (SEQ + HOME).
+2. Press **ENV**, **LFO**, **FX** or **EDIT**: its sound page shows (*P-LOCK* in red on top), the white keys stay the steps of the page. Press the same button again for its next page, as always.
+3. **Hold a step key and turn a knob:** that parameter is locked on that step (*LOCK 5* on top, the locked values in red). Hold several step keys to lock them together. An empty step is set when you press it, as in the SEQ layer.
+4. **No step held:** the knobs change the track's own sound, as on the page.
+5. **A step held + OCT−:** its locks go. **SEQ:** the steps again (still locked open); **HOME:** let go.
+
+- What locks: ENV (ATK, DEC, SUS, REL, the ENV destinations), LFO and its destinations, the FX sends (DST, CHO, DLY, REV), the SLICER, EDIT 1 and 2 (the engine's parameters), GLIDE, DTUNE and PAN. Not the pattern, the arp, the key, the voice mode, the level or MUTE (*NO LOCK HERE*). On the drum track: its SLICER (FX twice).
+- Up to 8 locks a step and 56 in a project: *LOCKS FULL* when there is no room.
+- Turning a knob while a locked step plays changes the track's own value: you hear it from the next step on, and the lock stays. What is saved (projects, sections, the autosave) and what the editor shows are always the track's own values, with the locks beside them.
+- Locks go with their steps: EDIT SHIFT and LENGTH ×2 move and copy them, undo / redo bring them back, a step cleared (or erased to nothing) loses them, clearing the track clears them. Song sections each have their own. A sound or engine changed keeps them (an EDIT lock is a value of the engine: another engine plays it within its own range).
 
 ### SCL — key and chords
 
@@ -259,7 +275,7 @@ Changing a sound (PRESETS, a user preset) never changes the key, the chord mode,
 
 ## Undo, clear, save, autosave
 
-- **Undo / redo:** hold EDIT, press OCT− / OCT+. One level: the last recording pass, erase, clear, step or pattern edit; redo takes it back again.
+- **Undo / redo:** hold EDIT, press OCT− / OCT+. One level: the last recording pass, erase, clear, step or pattern edit (with the step's parameter locks); redo takes it back again.
 - **Clear a track:** hold REC. After 0.7 s the press is cancelled and a ring fills; keep holding ~1.3 s more and the selected track is cleared (*TRACK 2 CLEARED*). Let go before: nothing. Undo brings it back.
 - **Save:** SAVE + keys 5–8 save the loop into section / project A–D (= SLOT 1–4); SAVE → PROJECT has SLOT, LOAD, SAVE too.
 - **Autosave:** when the transport is stopped and you have not touched anything for 2.5 s (at most every 20 s), the working project is kept in flash; at power-on SLOOP comes back exactly as you left it.
@@ -425,7 +441,7 @@ The glow is a short pulse on every scan of the panel (about 900 times a second):
 | --- | --- |
 | Tracks | 3 synth parts (8 voices shared) + drums (16 sounds, 6 voices) |
 | Sounds | 68 presets on 9 engines (browsed by kind, level-matched), 8 sampled sets (CC0), 3 slots for your own samples |
-| Sequencer | 64 steps per track, own length and division each; chords with a level and ratchet per note; drums with a level and ratchet per sound; a condition per step (chance, a:b, FILL, first pass); ties, slide; MPC swing 50–75 %; one sample-accurate clock for steps, arp, rolls, slicer and song (no drift) |
+| Sequencer | 64 steps per track, own length and division each; chords with a level and ratchet per note; drums with a level and ratchet per sound; a condition per step (chance, a:b, FILL, first pass); parameter locks (a step's own sound: 8 a step, 56 a project); ties, slide; MPC swing 50–75 %; one sample-accurate clock for steps, arp, rolls, slicer and song (no drift) |
 | Performance | layers (hold a button: keys and knobs change job): punch-in FX, erase, note repeat, step entry, key / chords, mute / solo / tap tempo |
 | Drum kits | 37 (5 sampled, 32 synthesised, 16 sounds each) |
 | Effects | 16 punch-in effects; master DUST, DUCK, DJ filter; per track drive, slicer, sends to a stereo chorus, a tempo delay and a stereo reverb; master limiter |

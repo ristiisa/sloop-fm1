@@ -2,7 +2,7 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Host test of the project formats (firmware/src/project.c, -DPROJ_HOST part). Format 6 ("FUN6",
  * SLOOP 2.5: 10-byte steps with levels and ratchets, the drum track's 16 lanes, the arp rhythm, ROT /
- * SYNC / RHYM / DEJA, a condition per step) is written; format 5 ("FUN5", SLOOP 2.4), format 4 ("FUN4", SLOOP 2.0..2.3), format 3 ("FUN3", SLOOP 1.x), format 2 ("FUN2", 53 parameters per track) and format 1 ("FUN1"), built
+ * SYNC / RHYM / DEJA, a condition per step, the parameter locks, checked on load) is written; format 5 ("FUN5", SLOOP 2.4), format 4 ("FUN4", SLOOP 2.0..2.3), format 3 ("FUN3", SLOOP 1.x), format 2 ("FUN2", 53 parameters per track) and format 1 ("FUN1"), built
  * byte for byte as the firmware stored them, convert: every old value at its parameter, the parameters
  * added since at their defaults, the swings onto the MPC scale (x 0.8), synth steps as they were, the
  * drum track's notes onto its lanes (accent: hard), globals, selection, the engine bytes (kept; the
@@ -124,11 +124,15 @@ int main(void)
     bad += check("layout: P_CHORD, the arp rhythm, ROT..DEJA, P_E0 (58); P_COUNT = format 5's + 4",
                  P_CHORD + 1 == P_AACC && P_ARAT + 1 == P_AROT && P_ADEJA + 1 == P_E0 && P_E0 == 58 &&
                  P_COUNT == PROJ_NP_V5 + 4u && P_COUNT == PROJ_NP_V4 + 8u && P_SLDEPTH + 1 == P_CHORD);
-    bad += check("format 6: format 5's + 32 (ROT..DEJA) + a condition byte per step and track, before the sum",
-                 sizeof(project_t) == sizeof(project_v5_t) + 32u + NTRK * NSTEP &&
-                 __builtin_offsetof(project_t, cond) + NTRK * NSTEP + 4u == sizeof(project_t));
+    bad += check("format 6: format 5's + 32 (ROT..DEJA) + a condition per step and track + the locks, then the sum",
+                 sizeof(project_t) == sizeof(project_v5_t) + 32u + NTRK * NSTEP + 4u * PLK_MAX &&
+                 __builtin_offsetof(project_t, cond) + NTRK * NSTEP == __builtin_offsetof(project_t, lk) &&
+                 __builtin_offsetof(project_t, lk) + 4u * PLK_MAX + 4u == sizeof(project_t));
     bad += check("format 6 fits one flash object; 4 slots fit .noinit", sizeof(project_t) <= 4096u - 256u &&
                  4u * sizeof(project_t) < 0x3D50u - 1024u);
+    bad += check("format 6 = format 5 (3144 bytes) + 32 + 256 conditions + 56 locks of 4 bytes (3656)",
+                 sizeof(project_v5_t) == 3144u && sizeof(project_t) == 3656u && PLK_MAX == 56u &&
+                 __builtin_offsetof(project_t, lk) == 3656u - 4u - 4u * PLK_MAX);
 
     /* format 3 (SLOOP 1.x) */
     memset(&v3, 0, sizeof v3);
@@ -262,7 +266,9 @@ int main(void)
             for (k = 0; k < NSTEP; k++)
                 ok &= q.cond[t][k] == CN_ALWAYS;
         }
-        bad += check("FUN5 -> FUN6: parameters by id, ROT..DEJA default, P_E0.. moved, steps, lanes, conditions ALWAYS", ok);
+        for (k = 0; k < PLK_MAX; k++)
+            ok &= !q.lk[k].id;
+        bad += check("FUN5 -> FUN6: parameters by id, ROT..DEJA default, P_E0.. moved, steps, lanes, conditions ALWAYS, no locks", ok);
         v5.t[1].p[50]++;
         memcpy(&buf, &v5, sizeof v5);
         bad += check("FUN5 with a bad checksum: refused", !proj_import(&q2, &buf, (int)sizeof v5));
@@ -291,6 +297,13 @@ int main(void)
     bad += check("FUN6 -> FUN6: as stored (levels, ratchets, lanes, engine 8, conditions)",
                  proj_import(&q2, &buf, (int)sizeof q) && !memcmp(&q, &q2, sizeof q) && q2.t[1].engine == 8 &&
                  q2.cond[0][3] == CN_1_4 && q2.cond[TRK_DRUM][5] == CN_P25 && q2.cond[2][63] == CN_NFIRST);
+    q.lk[0] = (plk_t){0 << 6 | 3, P_ED_FLT + 1, 40};
+    q.lk[7] = (plk_t){TRK_DRUM << 6 | 5, P_SLCR + 1, 2};
+    q.sum = proj_sum(&q);
+    memcpy(&buf, &q, sizeof q);
+    bad += check("FUN6 -> FUN6: as stored (levels, ratchets, lanes, engine 8, locks)",
+                 proj_import(&q2, &buf, (int)sizeof q) && !memcmp(&q, &q2, sizeof q) && q2.t[1].engine == 8 &&
+                 q2.lk[7].v == 2);
 
     /* damaged / wrong size */
     v2.t[1].p[3]++;
@@ -302,6 +315,9 @@ int main(void)
     memcpy(&buf, &q, sizeof q);
     buf.v6.magic = PROJ_MAGIC_V3;
     bad += check("FUN6 size with a FUN3 magic: refused", !proj_import(&q2, &buf, (int)sizeof q));
+    memcpy(&buf, &q, sizeof q);
+    buf.v6.lk[0].v++;
+    bad += check("FUN6 with a lock changed (bad checksum): refused", !proj_import(&q2, &buf, (int)sizeof q));
     memcpy(&buf, &v3, sizeof v3);
     buf.v3.t[2].step[7].vel ^= 1u;
     bad += check("FUN3 with a bad checksum: refused", !proj_import(&q2, &buf, (int)sizeof v3));
@@ -343,6 +359,43 @@ int main(void)
     ok = trk[2].p[P_SLEN] == 7 && trk[1].step[2].n == 2 && trk[1].step[2].lvl == 0x0D && song.g[G_DUST] == 33 &&
          dstep_has(&TDRUM->dstep[9], 4) && dstep_lvl(&TDRUM->dstep[9], 4) == LV_SOFT && dstep_rat(&TDRUM->dstep[9], 4) == 1u;
     bad += check("the working project: capture -> apply round trip (levels, lanes, DUST)", ok);
+
+    /* the locks: captured and applied; on load each one checked */
+    host_tracks_init();
+    host_preset(&trk[0], 0, 0);
+    ok = plk_set(&trk[0], 4, P_ED_FLT, 30) && plk_set(&trk[0], 4, P_E1, 20) && plk_set(&trk[1], 0, P_REV, 100) &&
+         plk_set(TDRUM, 2, P_SLDEPTH, 64);
+    trk[0].p[P_ED_FLT] = -10;
+    proj_capture(&q);
+    host_tracks_init();
+    proj_apply(&q, 1);
+    {
+        int16_t v = 0, w = 0, x = 0, y = 0;
+        ok &= plk_get(&trk[0], 4, P_ED_FLT, &v) && v == 30 && plk_get(&trk[0], 4, P_E1, &w) && w == 20 &&
+              plk_get(&trk[1], 0, P_REV, &x) && x == 100 && plk_get(TDRUM, 2, P_SLDEPTH, &y) && y == 64 &&
+              trk[0].p[P_ED_FLT] == -10 && plk_count(&trk[0], 4) == 2u;
+    }
+    bad += check("locks: capture -> apply round trip (the track's own value kept apart)", ok);
+    memset(q.lk, 0, sizeof q.lk);
+    q.lk[0] = (plk_t){0 << 6 | 1, P_ED_FLT + 1, 500};       /* out of its range: clamped */
+    q.lk[1] = (plk_t){0 << 6 | 1, P_ED_FLT + 1, 5};         /* the same lock again: dropped */
+    q.lk[2] = (plk_t){0 << 6 | 1, P_SLEN + 1, 3};           /* a pattern parameter: dropped */
+    q.lk[3] = (plk_t){TRK_DRUM << 6 | 1, P_ATK + 1, 3};     /* the drum track: only its SLICER */
+    q.lk[4] = (plk_t){1 << 6 | 2, P_COUNT + 1, 3};          /* no such parameter */
+    q.lk[5] = (plk_t){2 << 6 | 63, P_PAN + 1, -80};         /* the last step, clamped */
+    for (i = 0; i < PLK_STEP + 2u; i++)                     /* 10 on one step: 8 kept */
+        q.lk[10 + i] = (plk_t){1 << 6 | 7, (uint8_t)(P_ATK + i + 1u), 1};
+    proj_apply(&q, 1);
+    {
+        int16_t v = 0, w = 0;
+        uint32_t n = 0;
+        for (i = 0; i < PLK_MAX; i++)
+            n += plk[i].id != 0;
+        ok = plk_get(&trk[0], 1, P_ED_FLT, &v) && v == 63 && !plk_get(&trk[0], 1, P_SLEN, &w) &&
+             plk_count(TDRUM, 1) == 0u && plk_count(&trk[1], 2) == 0u && plk_get(&trk[2], 63, P_PAN, &w) && w == -64 &&
+             plk_count(&trk[1], 7) == PLK_STEP && n == 2u + PLK_STEP;
+    }
+    bad += check("locks on load: range, duplicates, what cannot lock, PLK_STEP a step: checked", ok);
 
     printf("%s\n", bad ? "PROJECT FORMAT TEST FAILED" : "project format test passed");
     return bad != 0;

@@ -164,6 +164,15 @@ typedef struct {                 /* a step of the drum track (10 bytes, the size
     uint8_t rat[4];              /* 2 bits per lane: ratchet */
 } dstep_t;
 _Static_assert(sizeof(step_t) == 10 && sizeof(dstep_t) == 10, "a step is 10 bytes on every track");
+/* parameter locks (seq.c plk_*): a step's own value of a sound parameter while it plays. One pool per
+ * project, saved with it; the track keeps its own value (p[]), the audio ISR swaps the step's in */
+#define PLK_MAX 56               /* locks in a project (224 bytes saved) */
+#define PLK_STEP 8               /* .. on one step */
+typedef struct {
+    uint8_t ts;                  /* track << 6 | step */
+    uint8_t id;                  /* P_* + 1, 0 = a free entry */
+    int16_t v;
+} plk_t;
 
 typedef struct track {
     int16_t p[P_COUNT];
@@ -244,6 +253,11 @@ typedef struct track {
     uint8_t xf_on, xf;           /* fading; blocks of the fade still to render */
     int16_t pe_old[8];           /* P_E0..P_E7 of the sounding engine: the fade renders with these */
     uint8_t xp_n, xp_note[4], xp_vel[4];   /* note-ons during the fade, played on the new engine */
+    /* parameter locks playing (seq.c plk_load): the ones of step lk_step (0xFF none); lk_on: in p[] now,
+     * the track's own values kept in lk_base (the UI never sees a lock in p[]) */
+    uint8_t lk_n, lk_on, lk_step;
+    uint8_t lk_id[PLK_STEP];
+    int16_t lk_v[PLK_STEP], lk_base[PLK_STEP];
 } track_t;
 
 typedef struct {
