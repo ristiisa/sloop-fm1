@@ -459,6 +459,7 @@ static void drum_screen_input(uint32_t pressed, uint32_t home)
                 if (k == 2) {
                     if (s > 0) dstep_set(st, drum_lane, LV_NORM, 0);
                     else dstep_clr(st, drum_lane);
+                    if (!dstep_mask(st)) plk_clear_step(TDRUM, drum_cursor);   /* (an empty step: no locks) */
                 } else if (dstep_has(st, drum_lane)) {
                     uint32_t r = (uint32_t)clamp((int32_t)lvl_rank(dstep_lvl(st, drum_lane)) + (s > 0 ? 1 : -1), 0, 3);
                     dstep_set(st, drum_lane, LV_UP[r], dstep_rat(st, drum_lane));

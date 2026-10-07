@@ -496,10 +496,20 @@ static void layer_tap(uint32_t layer)
 {
     switch (layer) {
     case LY_FX:
-        open_family(FAM_FX);
+        if (ly_lock == LY_STEP)
+            plk_open(FAM_FX);                             /* (P-LOCK: the SLICER on the drum track) */
+        else
+            open_family(FAM_FX);
         break;
     case LY_ERASE:
     case LY_STEP:
+        if (ly_lock == LY_STEP) {                         /* the SEQ lock: EDIT its pages (P-LOCK), SEQ the steps */
+            if (layer == LY_ERASE)
+                plk_open(FAM_EDIT);
+            else if (ui.plk)
+                ui.plk = 0, ui.force = 1;
+            break;
+        }
         if (on_drum_page()) {                             /* DRUMS: GRID <-> KIT */
             drum_page = (uint8_t)((drum_page + 1u) % 2u);
             ui.force = 1;
@@ -544,7 +554,8 @@ static void layer_tap(uint32_t layer)
 
 /* a layer locked open: a layer button held + HOME tapped. The layer stays with the button let go (both
  * hands free for the keys and the knobs); any other button but PLAY, REC and OCT- / OCT+ lets it go
- * (and does only that: its press is eaten) */
+ * (and does only that: its press is eaten). The SEQ lock keeps ENV, LFO, FX and EDIT: they show their
+ * pages (P-LOCK), SEQ shows the steps again */
 static uint8_t home_eat;                                  /* HOME pressed to unlock: its tap is eaten */
 static void layer_unlock(void)
 {
@@ -552,6 +563,7 @@ static void layer_unlock(void)
         ly_lock = LY_PLAY;
         ui.force = 1;
     }
+    ui.plk = 0;
 }
 
 /* the layers, once a frame: which one is held (or locked), the taps on release, its keys and knobs.
@@ -563,6 +575,13 @@ static int layers_input(uint32_t note_edges, uint32_t *pressed, uint32_t home)
     uint32_t l, now = fm1_ms, held = LY_PLAY, eat = 0;
     if (ly_lock != LY_PLAY) {
         uint32_t keep = 1u << panel.btn[B_PLAY] | 1u << panel.btn[B_REC] | 1u << panel.btn[B_OCTDN] | 1u << panel.btn[B_OCTUP];
+        if (ly_lock == LY_STEP) {                         /* P-LOCK: the sound pages, inside the SEQ lock */
+            uint32_t env = 1u << panel.btn[B_ENV], lfo = 1u << panel.btn[B_LFO];
+            if (*pressed & (env | lfo))
+                plk_open(*pressed & env ? FAM_ENV : FAM_LFO);
+            *pressed &= ~(env | lfo);
+            keep |= ly_bit[LY_FX] | ly_bit[LY_ERASE] | (ui.plk ? ly_bit[LY_STEP] : 0u);
+        }
         eat = *pressed & ~keep;
         if (eat) {
             layer_unlock();
@@ -648,7 +667,10 @@ static int layers_input(uint32_t note_edges, uint32_t *pressed, uint32_t home)
         prev = b;
         if (press) {
             used[held] = 1;
-            ui.step_page = (uint8_t)((ui.step_page + ((press & pb) ? 1u : pages - 1u)) % pages);
+            if (ui.step_held && (press & ob))
+                steps_lock_clear();                       /* step keys held + OCT-: their locks go */
+            else
+                ui.step_page = (uint8_t)((ui.step_page + ((press & pb) ? 1u : pages - 1u)) % pages);
         }
     }
     return 1;

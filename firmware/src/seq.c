@@ -212,6 +212,222 @@ static uint32_t trk_grid(const track_t *t, uint32_t *into, uint32_t *len)
 }
 static uint32_t trk_len(const track_t *t) { return t->p[P_SLEN] > 0 ? (uint32_t)t->p[P_SLEN] : 1u; }
 
+/* -------------------------------------------------- parameter locks --- */
+/* A step can hold its own value of a sound parameter (P-LOCK: ui_layers.c): while the step plays (and
+ * the TIE steps after it) its track plays with that value, then with its own again. The locks are a
+ * pool of the project (plk[], up to PLK_MAX, PLK_STEP a step), edited by the UI with the IRQ off; every
+ * change bumps plk_gen and the steps playing read theirs again. The ISR swaps the locked values into p[]
+ * only while it renders a block (mix_block: plk_block_in .. plk_block_out), the track's own kept in
+ * lk_base: the UI, the editor and a saved project see the track's own values only, and a knob turned
+ * while a lock plays changes the track's own value. Locks follow their steps (shift, x2, undo, erase,
+ * clear) and go with them. */
+static plk_t plk[PLK_MAX] __attribute__((section(".pool")));
+static volatile uint8_t plk_gen;              /* bumped by every change of plk[] */
+static uint8_t plk_seen;                      /* the plk_gen the locks playing were read from */
+#define PLK_NONE 0xFFu
+
+static uint32_t plk_ts(const track_t *t, uint32_t idx) { return trk_index(t) << 6 | (idx & 63u); }
+
+/* what a step can lock: the sound (ENV, LFO, FX sends, SLICER, EDIT, glide, detune, pan), not the
+ * pattern, the arp, the key, the voice mode, the level or MUTE; the drum track: its SLICER */
+static int plk_lockable(const track_t *t, uint32_t id)
+{
+    if (is_drum(t))
+        return id >= P_SLCR && id <= P_SLDEPTH;
+    return (id >= P_ATK && id <= P_ED_SHP) || (id >= P_LRATE && id <= P_LD_AMP) || (id >= P_DIST && id <= P_REV) ||
+           (id >= P_SLCR && id <= P_SLDEPTH) || id == P_GLIDE || id == P_DETUNE || id == P_PAN ||
+           (id >= P_E0 && id <= P_E7);
+}
+/* the range of a lock (EDIT: the engine the track asked for, as its p[]) */
+static const param_desc_t *plk_desc(const track_t *t, uint32_t id)
+{
+    return id >= P_E0 && id <= P_E7 ? &ENGINES[t->eng_req % NENGINES]->edit[id - P_E0] : &TP[id];
+}
+
+static int plk_find(uint32_t ts, uint32_t id)  /* the entry of lock id on step ts, -1 none */
+{
+    uint32_t i;
+    for (i = 0; i < PLK_MAX; i++)
+        if (plk[i].id == id + 1u && plk[i].ts == ts)
+            return (int)i;
+    return -1;
+}
+static uint32_t plk_count(const track_t *t, uint32_t idx)   /* the locks of step idx */
+{
+    uint32_t i, n = 0, ts = plk_ts(t, idx);
+    for (i = 0; i < PLK_MAX; i++)
+        n += plk[i].id && plk[i].ts == ts;
+    return n;
+}
+static uint32_t plk_marks(const track_t *t, uint32_t bank)   /* bit per step of the bank (16) with locks */
+{
+    uint32_t i, m = 0, k = trk_index(t);
+    for (i = 0; i < PLK_MAX; i++)
+        if (plk[i].id && plk[i].ts >> 6 == k && (plk[i].ts & 63u) / 16u == bank)
+            m |= 1u << (plk[i].ts & 15u);
+    return m;
+}
+static int plk_get(const track_t *t, uint32_t idx, uint32_t id, int16_t *v)
+{
+    int i = plk_find(plk_ts(t, idx), id);
+    if (i >= 0)
+        *v = plk[i].v;
+    return i >= 0;
+}
+/* lock id of step idx at v (into its range); 0: no room (PLK_STEP on the step, or the pool full) */
+static int plk_set(const track_t *t, uint32_t idx, uint32_t id, int32_t v)
+{
+    const param_desc_t *d = plk_desc(t, id);
+    int k = plk_find(plk_ts(t, idx), id);
+    if (k < 0) {
+        if (plk_count(t, idx) >= PLK_STEP)
+            return 0;
+        for (k = 0; k < PLK_MAX && plk[k].id; k++)
+            ;
+        if (k == PLK_MAX)
+            return 0;
+        plk[k].ts = (uint8_t)plk_ts(t, idx);
+    }
+    plk[k].v = (int16_t)clamp(v, d->min, d->max);
+    plk[k].id = (uint8_t)(id + 1u);                 /* (last: a new entry is whole when it counts) */
+    plk_gen++;
+    return 1;
+}
+static uint32_t plk_clear_step(const track_t *t, uint32_t idx)   /* the locks of step idx go; how many */
+{
+    uint32_t i, n = 0, ts = plk_ts(t, idx);
+    for (i = 0; i < PLK_MAX; i++)
+        if (plk[i].id && plk[i].ts == ts) {
+            plk[i].id = 0;
+            n++;
+        }
+    if (n)
+        plk_gen++;
+    return n;
+}
+static void plk_clear_track(const track_t *t)
+{
+    uint32_t i, k = trk_index(t);
+    for (i = 0; i < PLK_MAX; i++)
+        if (plk[i].ts >> 6 == k)
+            plk[i].id = 0;
+    plk_gen++;
+}
+/* EDIT SHIFT: the locks of steps 0..len-1 one step later (d > 0) / earlier, round, as the steps */
+static void plk_rotate(const track_t *t, uint32_t len, int32_t d)
+{
+    uint32_t i, k = trk_index(t);
+    for (i = 0; i < PLK_MAX; i++) {
+        uint32_t s = plk[i].ts & 63u;
+        if (plk[i].id && plk[i].ts >> 6 == k && s < len)
+            plk[i].ts = (uint8_t)(k << 6 | (d > 0 ? (s + 1u) % len : (s + len - 1u) % len));
+    }
+    plk_gen++;
+}
+/* LENGTH x2: the locks of steps 0..len-1 again on len.. (theirs go first); 0: the pool was full */
+static int plk_double(const track_t *t, uint32_t len)
+{
+    uint32_t i, k = trk_index(t);
+    int ok = 1;
+    for (i = len; i < 2u * len && i < NSTEP; i++)
+        plk_clear_step(t, i);
+    for (i = 0; i < PLK_MAX; i++)                   /* (the copies land on steps >= len: never copied again) */
+        if (plk[i].id && plk[i].ts >> 6 == k && (plk[i].ts & 63u) < len && (plk[i].ts & 63u) + len < NSTEP)
+            ok &= plk_set(t, (plk[i].ts & 63u) + len, plk[i].id - 1u, plk[i].v);
+    return ok;
+}
+/* the locks of t into buf (PLK_MAX entries, the rest free), and back (what does not fit is lost) */
+static void plk_save(const track_t *t, plk_t *buf)
+{
+    uint32_t i, n = 0, k = trk_index(t);
+    memset(buf, 0, PLK_MAX * sizeof *buf);
+    for (i = 0; i < PLK_MAX; i++)
+        if (plk[i].id && plk[i].ts >> 6 == k)
+            buf[n++] = plk[i];
+}
+static void plk_restore(const track_t *t, const plk_t *buf)
+{
+    uint32_t i, j = 0;
+    plk_clear_track(t);
+    for (i = 0; i < PLK_MAX && buf[i].id; i++) {
+        while (j < PLK_MAX && plk[j].id)
+            j++;
+        if (j == PLK_MAX)
+            break;
+        plk[j] = buf[i];
+    }
+}
+
+/* ---- playing them (audio ISR) */
+static void plk_in(track_t *t)                  /* the locks playing into p[], the track's own kept */
+{
+    uint32_t i;
+    if (t->lk_on)
+        return;
+    for (i = 0; i < t->lk_n; i++) {
+        const param_desc_t *d = plk_desc(t, t->lk_id[i]);   /* (another engine since: its range) */
+        t->lk_base[i] = t->p[t->lk_id[i]];
+        t->p[t->lk_id[i]] = (int16_t)clamp(t->lk_v[i], d->min, d->max);
+    }
+    t->lk_on = 1;
+}
+static void plk_out(track_t *t)                 /* the track's own values back */
+{
+    uint32_t i = t->lk_n;
+    if (!t->lk_on)
+        return;
+    while (i--)
+        t->p[t->lk_id[i]] = t->lk_base[i];
+    t->lk_on = 0;
+}
+/* step idx plays: its locks from now on (none: the track's own values) */
+static void plk_load(track_t *t, uint32_t idx)
+{
+    uint32_t i, n = 0, ts = plk_ts(t, idx), on = t->lk_on;
+    plk_out(t);
+    for (i = 0; i < PLK_MAX && n < PLK_STEP; i++)
+        if (plk[i].id && plk[i].id <= P_COUNT && plk[i].ts == ts) {
+            t->lk_id[n] = (uint8_t)(plk[i].id - 1u);
+            t->lk_v[n++] = plk[i].v;
+        }
+    t->lk_n = (uint8_t)n;
+    t->lk_step = (uint8_t)idx;
+    if (on)
+        plk_in(t);
+}
+static void plk_drop(track_t *t)                /* stop, a section, a load: no lock plays */
+{
+    plk_out(t);
+    t->lk_n = 0;
+    t->lk_step = PLK_NONE;
+}
+static void plk_block_in(void)                  /* mix_block, before the block's events */
+{
+    uint32_t i;
+    if (plk_seen != plk_gen) {                   /* the locks changed: the steps playing read theirs again */
+        plk_seen = plk_gen;
+        for (i = 0; i < NTRK; i++)
+            if (song.playing && trk[i].lk_step < NSTEP)
+                plk_load(&trk[i], trk[i].lk_step);
+    }
+    for (i = 0; i < NTRK; i++)
+        plk_in(&trk[i]);
+}
+static void plk_block_out(void)                 /* mix_block, after the block */
+{
+    uint32_t i;
+    for (i = 0; i < NTRK; i++)
+        plk_out(&trk[i]);
+}
+/* p[] of t as the track's own values (a lock playing in it: its base; proj_capture in the ISR) */
+static void plk_own(const track_t *t, int16_t *p)
+{
+    uint32_t i = t->lk_n;
+    if (t->lk_on)
+        while (i--)
+            p[t->lk_id[i]] = t->lk_base[i];
+}
+
 /* ------------------------------------------------------------- undo --- */
 /* One step back (and forward again) for the pattern of one track: what it was before the last
  * recording pass, erase, step edit, tool or clear (a session: one mark). EDIT + OCT- / OCT+. */
@@ -221,6 +437,7 @@ static struct {
     uint32_t sess;
     step_t st[NSTEP];
 } undo;
+static plk_t undo_lk[PLK_MAX] __attribute__((section(".pool")));   /* .. and its locks */
 static uint32_t undo_sess = 1;           /* UI sessions (seq.c: recording passes use the track's pass) */
 static void undo_mark(const track_t *t, uint32_t sess)
 {
@@ -228,6 +445,7 @@ static void undo_mark(const track_t *t, uint32_t sess)
     if (undo.valid && !undo.undone && undo.trk == i && undo.sess == sess)
         return;                                          /* (this session is marked already) */
     memcpy(undo.st, t->step, sizeof undo.st);
+    plk_save(t, undo_lk);
     undo.len = t->p[P_SLEN];
     undo.trk = (uint8_t)i;
     undo.sess = sess;
@@ -439,6 +657,7 @@ static void steps_clear(track_t *t)           /* an empty pattern (synth: REST s
     if (!is_drum(t))
         for (k = 0; k < NSTEP; k++)
             t->step[k].time = ST_REST;
+    plk_clear_track(t);                       /* (and their locks) */
 }
 
 /* tempo x 10 of a loop of T blocks holding n bars of 4/4 */
@@ -586,12 +805,14 @@ static void erase_step(track_t *t, uint32_t idx)
 {
     if (is_drum(t)) {
         dstep_t *s = &t->dstep[idx];
-        uint32_t l, m = dstep_mask(s) & er_lanes;
+        uint32_t l, m = dstep_mask(s) & er_lanes, any = m;
         for (l = 0; m; l++, m >>= 1)
             if (m & 1u) {
                 dstep_clr(s, l);
                 er_flash = 1;
             }
+        if (any && !dstep_mask(s))
+            plk_clear_step(t, idx);                 /* (an empty step: its locks go with it) */
     } else {
         step_t *s = &t->step[idx];
         uint32_t i, k = 0, lv = 0, rt = 0;
@@ -613,6 +834,7 @@ static void erase_step(track_t *t, uint32_t idx)
             s->time = ST_REST;
             s->flags = 0;
             s->vel = 0;
+            plk_clear_step(t, idx);
         }
     }
 }
@@ -1399,6 +1621,7 @@ static void seq_reset_tracks(uint32_t pos)
         t->rskip_abs = SEQ_NONE;
         t->rh_n = 0;
         t->arp_new = t->nheld != 0;
+        plk_drop(t);
     }
     for (i = 0; i < NROLL; i++)
         roll[i].last = SEQ_NONE - 1u;               /* (a roll held over the start: on the grid from here) */
@@ -1450,6 +1673,7 @@ static void seq_stop(void)
     song.playing = 0;
     for (i = 0; i < NTRK; i++) {
         seq_release(&trk[i]);
+        plk_drop(&trk[i]);                         /* the tracks' own values */
         trk[i].rh_n = 0;                           /* a recorded note held over the stop: as far as it got */
     }
 #if FELUCCA_ARRANGER
@@ -1597,6 +1821,7 @@ static void seq_tick(track_t *t, uint32_t adv)
         if (is_drum(t)) {
             uint32_t skip = t->rskip_abs == abs ? t->rskip_lanes : 0u;
             t->rskip_lanes = 0;
+            plk_load(t, idx);
             drum_step(t, &t->dstep[idx], skip);
         } else {
             const step_t *s = &t->step[idx];
@@ -1608,6 +1833,8 @@ static void seq_tick(track_t *t, uint32_t adv)
                         if (s->note[i] == t->rskip[k])
                             skip |= 1u << i;
             t->rskip_n = 0;
+            if (s->time != ST_TIE)
+                plk_load(t, idx);                    /* (a TIE: the note's locks go on) */
             seq_step(t, s, slen, skip);
         }
     }

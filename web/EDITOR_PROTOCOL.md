@@ -192,9 +192,12 @@ editor takes them from `INFO`; older records load with the SLICER off and CHORD 
 - Level and mute are also `P_LEVEL` / `P_MUTE` of the selected track (`SET`); `TRACK_MIX` reaches the
   others. Presets and user presets change a part's sound but keep its mix (`P_LEVEL`, `P_PAN`,
   `P_MUTE`), its pattern parameters (`LEN DIV SWG GATE`) and its key (`ROOT SCL QNT`, `CHORD`).
-- Projects (`PROJECT`) save and load all four tracks and the selection (SLOOP 2.0: project format 4,
-  "FUN4", with the drum lanes, levels and ratchets; formats 3, 2 and 1 from older firmware are converted
-  when loaded, a format 1 project into track 1).
+- Projects (`PROJECT`) save and load all four tracks and the selection (SLOOP 2.5: project format 6,
+  "FUN6", with the drum lanes, levels and ratchets and the parameter locks of the steps; formats 5..1 from
+  older firmware are converted when loaded, a format 1 project into track 1).
+- Parameter locks (SLOOP 2.5, set on the device: P-LOCK) never show in `GET`, `DUMP` or `TRACK_*`: those
+  are always the track's own values, also while a locked step plays. A step cleared by `STEP_SET`,
+  `TRACK_STEP` or `DRUM_STEP` loses its locks.
 - Older firmware (no NTRK in `INFO`): one instrument; skip the track UI.
 
 ## v4: any track's parameters
