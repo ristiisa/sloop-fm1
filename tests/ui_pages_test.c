@@ -7,7 +7,7 @@
  *   FX      held + a white key: punch-in; knobs: filter, dust, duck
  *   SEQ     held: the steps on the white keys (drums: the sound played last), OCT: pages, a step key
  *           held + KNOB 2 / 3: level / ratchet
- *   EDIT    held + a key: erase; OCT- / OCT+: undo / redo; KNOB 1 shift, 2 length x2
+ *   EDIT    held + a key: erase; OCT- / OCT+: undo / redo; KNOB 1 shift, 2 length x2, 4 mutate / back
  *   ARP     held + a key: a roll; KNOB 1 the rate
  *   SCL     held + a key: the key of the song
  *   GLO     held + keys: mute, solo, tap tempo; knobs: levels
@@ -225,6 +225,32 @@ int main(int argc, char **argv)
     edges_btn |= BT(B_OCTDN); fm1_in.buttons |= BT(B_OCTDN); frame(); fm1_in.buttons &= ~BT(B_OCTDN); frame();
     release(B_EDIT);
     check(TDRUM->p[P_SLEN] == 16, "EDIT + OCT-: the length back to 16");
+    {   /* EDIT + KNOB 4: MUTATE a pass a detent, back a pass; the hold one undo */
+        static step_t orig[NSTEP], one[NSTEP], two[NSTEP];
+        static const uint8_t N[4] = {60, 64, 67, 72};
+        song.sel = 0; go_home(); frame();
+        steps_clear(&trk[0]);
+        for (i = 0; i < 16u; i += 2u) put_step(&trk[0], i, 1, &N[(i / 2u) & 3u], ST_NOTE, 0);
+        memcpy(orig, trk[0].step, sizeof orig);
+        press(B_EDIT); frames(10);
+        encs[panel.enc[EN_K4]] = 1; frame(); memcpy(one, trk[0].step, sizeof one);
+        encs[panel.enc[EN_K4]] = 1; frame(); memcpy(two, trk[0].step, sizeof two);
+        encs[panel.enc[EN_K4]] = 1; frame();
+        check(memcmp(orig, one, sizeof orig) && memcmp(one, two, sizeof one) && !strcmp(ui.msg, "MUTATE 3"),
+              "EDIT + KNOB 4 right x3: three passes, MUTATE 3");
+        ppm("layer-mutate");
+        encs[panel.enc[EN_K4]] = -1; frame();
+        check(!memcmp(trk[0].step, two, sizeof two) && !strcmp(ui.msg, "MUTATE 2"), "KNOB 4 left: the last pass undone, MUTATE 2");
+        edges_btn |= BT(B_OCTDN); fm1_in.buttons |= BT(B_OCTDN); frame(); fm1_in.buttons &= ~BT(B_OCTDN); frame();
+        check(!memcmp(trk[0].step, orig, sizeof orig), "EDIT + OCT-: the whole hold's mutations undone at once");
+        edges_btn |= BT(B_OCTUP); fm1_in.buttons |= BT(B_OCTUP); frame(); fm1_in.buttons &= ~BT(B_OCTUP); frame();
+        check(!memcmp(trk[0].step, two, sizeof two), "EDIT + OCT+: redo, as left");
+        encs[panel.enc[EN_K4]] = -2; frame();
+        check(!memcmp(trk[0].step, orig, sizeof orig) && !strcmp(ui.msg, "MUTATE 0"), "KNOB 4 left x2 after the redo: the original again");
+        release(B_EDIT);
+        steps_clear(&trk[0]);
+        song.sel = TRK_DRUM; go_home(); frame();
+    }
 
     /* ---- ARP layer: a roll, rate knob */
     press(B_ARP); frames(10);
