@@ -18,6 +18,7 @@ SLOOP is free and open source (GPL-3.0), based on [Felucca](https://github.com/h
 - **MUTATE.** EDIT + **KNOB 4**: each click right varies the pattern a little, left takes it back.
 - **DICE.** EDIT + **PRESETS**: each click right rolls a new pattern for the selected track — a groove on the drum track, a bass line, a melody or chords in the song's key on a synth track — in a style (EDIT + **ALGORITHM**: HOUSE, TRAP, BOOM BAP, BREAK, AMAPIANO, DNB, RANDOM, or KIT: the style of the drum kit); left goes back through the rolls to your own pattern. See [EDIT — erase](#edit--erase).
 - **Inverted screen.** HOME → COLOR: **INV BW** and **INV GRN** turn the panel into its negative — a white screen with dark text, much brighter on a dim panel (the track colours invert too).
+- **Room for more.** The firmware is 53 KB smaller — the large font is drawn from the small one, the pitch table is one octave — with the screen and the sound exactly as before.
 
 ### New in 2.3
 

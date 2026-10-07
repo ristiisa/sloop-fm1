@@ -603,7 +603,7 @@ static uint32_t track_render(track_t *t, int32_t *out, uint32_t n)
                         ((v->penv * p[P_ED_PIT] * 3) >> 7);
             pitch = (q >> 8) + tune;
             m.pitch16 = clamp(pitch, 0, 2047);
-            m.inc = PITCH_INC[m.pitch16];
+            m.inc = pitch_inc(m.pitch16);
             q = (q & 255) * 3792 >> 16;                 /* the fraction, as fine (1/16 st = 14.8) */
             if (v->fine + tune_fine + q)                /* unison detune, fine tune and the fraction */
                 m.inc += (uint32_t)((int32_t)(m.inc >> 12) * (v->fine + tune_fine + q));

@@ -1,48 +1,30 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-only
 # Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
-"""Render the bitmap fonts to a C header (assets/fonts/):
-  S  labels / units / status   Latin-1 32..255 at 1x
-  L  large values / titles     32..95 (digits, signs, capitals), the same glyphs at 2x
-Terminus 8x16 (BDF, SIL OFL 1.1). TTF fonts also work through render()
-(anti-aliased, tabular figures via the OpenType `tnum` feature).
+"""Render the bitmap font to a C header (assets/fonts/): Terminus 8x16 (BDF, SIL OFL 1.1).
+One set of glyphs, drawn by gfx.c at two sizes:
+  S  labels / units / status   1x, ASCII 32..126
+  L  large values / titles     2x (pixel doubled), 32..95: lower case folds to upper case
+plus the Latin-1 U-umlaut (HÜGELTON) for S; any other byte draws as '?'.
 
-Glyph format: per glyph an advance width, a bitmap width and an offset; the
-bitmap starts FONT_PAD pixels left of the pen position (room for side
-bearings); rows top to bottom, 2 pixels per byte (high nibble first),
-alpha 0..15.
+Glyph format: 16 rows of one byte, top to bottom, bit 7 = the leftmost pixel; the
+advance is the cell width (8, 16 at 2x).
 """
 import sys
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont
-
 FONTS = Path(__file__).resolve().parents[1] / "assets" / "fonts"
-# (name, file, px, scale, pixel, first, last): pixel fonts are rendered without
-# anti-aliasing at their design size and enlarged by an integer factor
-SIZES = [("S", "ter-u16n.bdf", 16, 1, True, 32, 255),   # Latin-1 (Hügelton needs the umlaut)
-         ("L", "ter-u16n.bdf", 16, 2, True, 32, 95)]   # values / titles: digits, signs, capitals
-PAD = 2
+BDF = "ter-u16n.bdf"
+FIRST, LAST = 32, 126
+EXTRA = [0xDC]                                         # Ü: glyph LAST - FIRST + 1 (FONT_UUML_GLYPH)
 
 
-def upscale(px_, w, h, scale):
-    """integer nearest-neighbour enlargement of a w x h glyph"""
-    if scale == 1:
-        return px_
-    big = []
-    for y in range(h):
-        row = []
-        for x in range(w):
-            row += [px_[y * w + x]] * scale
-        big += row * scale
-    return big
-
-
-def render_bdf(path, scale, first, last):
+def render_bdf(path):
     """BDF bitmap font (Terminus 8x16): exact pixels, cell = the font bounding box."""
     lines = path.read_text(errors="replace").splitlines()
     fbb = next(l for l in lines if l.startswith("FONTBOUNDINGBOX")).split()
     cw, ch, fx, fy = int(fbb[1]), int(fbb[2]), int(fbb[3]), int(fbb[4])
+    assert (cw, ch) == (8, 16)
     base = ch + fy                                     # rows above the baseline
     glyphs, i = {}, 0
     while i < len(lines):
@@ -67,7 +49,7 @@ def render_bdf(path, scale, first, last):
                     if bits >> (nbits - 1 - c) & 1:
                         x, y = bx + c, top + r
                         if 0 <= x < cw and 0 <= y < ch:
-                            cell[y * cw + x] = 15
+                            cell[y * cw + x] = 1
             glyphs[code] = (dw, cell)
             i = k + bh
         i += 1
@@ -78,71 +60,32 @@ def render_bdf(path, scale, first, last):
         if lit:
             top = min(y for y in range(ch) for x in range(cw) if cell[y * cw + x])
             for x in range(cw):
-                cell[top * cw + x] = 15 if x in (min(lit), max(lit)) else 0
+                cell[top * cw + x] = 1 if x in (min(lit), max(lit)) else 0
             for x in range(cw):
                 cell[(top + 1) * cw + x] = 0
             glyphs[0xDC] = (dw, cell)
-    missing = [chr(c) for c in range(first, min(last, 126) + 1) if c not in glyphs]
+    missing = [chr(c) for c in range(FIRST, LAST + 1) if c not in glyphs]
     if missing:
         print(f"font {path.name}: no glyph for {''.join(missing)!r} (drawn as '?')")
     out = []
-    for c in range(first, last + 1):
+    for c in list(range(FIRST, LAST + 1)) + EXTRA:
         dw, cell = glyphs.get(c, glyphs[ord("?")])
-        bw = cw + 2 * PAD                              # keep the PAD convention of the TTF path
-        px_ = []
-        for y in range(ch):
-            px_ += [0] * PAD + cell[y * cw:(y + 1) * cw] + [0] * PAD
-        out.append((dw * scale, bw * scale, upscale(px_, bw, ch, scale)))
-    return ch * scale, out
-
-
-def render(ttf, px, scale, pixel, first, last):
-    if ttf.endswith(".bdf"):
-        return render_bdf(FONTS / ttf, scale, first, last)
-    font = ImageFont.truetype(str(FONTS / ttf), px)
-    feats = None if pixel else ["tnum"]
-    asc, desc = font.getmetrics()
-    top = max(0, font.getbbox("A8|(", features=feats)[1] - 1)
-    h = asc + desc - top
-    glyphs = []
-    for c in range(first, last + 1):
-        ch = chr(c)
-        adv = int(round(font.getlength(ch, features=feats)))
-        bw = adv + 2 * PAD
-        img = Image.new("L", (bw, asc + desc), 0)
-        ImageDraw.Draw(img).text((PAD, 0), ch, font=font, fill=255, features=feats)
-        img = img.crop((0, top, bw, top + h))
-        px_ = [(15 if v >= 128 else 0) if pixel else min(15, (v + 8) // 17) for v in img.tobytes()]
-        glyphs.append((adv * scale, bw * scale, upscale(px_, bw, h, scale)))
-    return h * scale, glyphs
+        assert dw == cw, f"font {path.name}: {c} is not {cw} wide"
+        out += [sum(cell[y * cw + x] << (7 - x) for x in range(cw)) for y in range(ch)]
+    return out
 
 
 def main(out):
-    lines = [f"/* generated by tools/gen_font.py from {SIZES[0][1]} */",
-             "#pragma once", "#include <stdint.h>", f"#define FONT_PAD {PAD}  /* x scale for L, see below */", ""]
-    for name, ttf, px, scale, pixel, first, last in SIZES:
-        h, glyphs = render(ttf, px, scale, pixel, first, last)
-        data, offs = [], []
-        for adv, bw, g in glyphs:
-            offs.append(len(data))
-            for y in range(h):
-                row = g[y * bw:(y + 1) * bw] + [0]
-                for x in range(0, bw, 2):
-                    data.append((row[x] << 4) | row[x + 1])
-        assert len(data) < 65536
-        lines.append(f"static const uint8_t FONT_{name}_DATA[{len(data)}] = {{")
-        for i in range(0, len(data), 24):
-            lines.append("    " + ", ".join(f"0x{b:02x}" for b in data[i:i + 24]) + ",")
-        lines.append("};")
-        lines.append(f"static const uint16_t FONT_{name}_OFF[{len(offs)}] = {{" + ", ".join(map(str, offs)) + "};")
-        lines.append(f"static const uint8_t FONT_{name}_ADV[{len(glyphs)}] = {{" +
-                     ", ".join(str(a) for a, _, _ in glyphs) + "};")
-        lines.append(f"static const uint8_t FONT_{name}_BW[{len(glyphs)}] = {{" +
-                     ", ".join(str(b) for _, b, _ in glyphs) + "};")
-        lines.append(f"static const felucca_font_t FONT_{name} = {{ {h}, {PAD * scale}, {first}, {last}, "
-                     f"FONT_{name}_ADV, FONT_{name}_BW, FONT_{name}_OFF, FONT_{name}_DATA }};")
-        lines.append("")
-        print(f"font {name}: {ttf} {px}px h {h}, digit adv {glyphs[ord('0') - first][0]}, {len(data)} B")
+    data = render_bdf(FONTS / BDF)
+    lines = [f"/* generated by tools/gen_font.py from {BDF} */", "#pragma once", "#include <stdint.h>",
+             f"#define FONT_UUML_GLYPH {LAST - FIRST + 1}  /* the Latin-1 U-umlaut */", "",
+             f"static const uint8_t FONT_BITS[{len(data)}] = {{"]
+    for i in range(0, len(data), 16):
+        lines.append("    " + ", ".join(f"0x{b:02x}" for b in data[i:i + 16]) + ",")
+    lines += ["};",
+              f"static const felucca_font_t FONT_S = {{16, 1, {LAST}}};   /* labels / units / status */",
+              "static const felucca_font_t FONT_L = {32, 2, 95};    /* large values / titles: capitals */", ""]
+    print(f"font: {BDF} 8x16, {len(data) // 16} glyphs, {len(data)} B (S 1x, L 2x)")
     Path(out).write_text("\n".join(lines))
 
 
