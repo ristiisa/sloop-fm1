@@ -34,7 +34,7 @@ static const icon_map_t ICON_MAP[] = {
     {"PROB", ICON_PROB}, {"HOLD", ICON_HOLD}, {"ORD", ICON_ORDER}, {"ROOT", ICON_PITCH},
     {"SCL", ICON_SCALE}, {"QNT", ICON_QUANTIZE}, {"TRN", ICON_TRANSPOSE}, {"LEN", ICON_LENGTH},
     {"DIV", ICON_DIVISION}, {"ACC", ICON_ACCENT}, {"HITS", ICON_STEPS}, {"STEPS", ICON_LENGTH},
-    {"RAT", ICON_DIVISION},
+    {"RAT", ICON_DIVISION}, {"ROT", ICON_PHASE}, {"RHYM", ICON_DRUM}, {"DEJA", ICON_LOOP},   /* (SYNC: global) */
     /* fx sends, voice */
     {"DST", ICON_DIST}, {"CHO", ICON_CHORUS}, {"DLY", ICON_DELAY}, {"REV", ICON_REVERB},
     {"VCE", ICON_VOICE}, {"GLD", ICON_GLIDE}, {"GLMOD", ICON_GLIDE}, {"PRIO", ICON_ORDER},

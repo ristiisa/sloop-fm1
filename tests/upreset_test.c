@@ -139,14 +139,14 @@ int main(void)
     for (i = 0; i < 53u; i++)
         r.p[i] = (int16_t)(2000 + i);
     up_params(&r, v, def);
-    ok = P_SLCR == 45 && P_SLDEPTH + 1 == P_CHORD && P_CHORD == 49 && P_E0 == 54;
+    ok = P_SLCR == 45 && P_SLDEPTH + 1 == P_CHORD && P_CHORD == 49 && P_E0 == 58;
     for (i = 0; i < 45u; i++)
         ok &= v[i] == (int16_t)(2000 + i);
     for (i = P_SLCR; i < P_E0; i++)
         ok &= v[i] == def[i];
     for (i = 0; i < 8u; i++)
         ok &= v[P_E0 + i] == (int16_t)(2000 + 45 + i);
-    bad += check("old record (np 53): SLICER, CHORD and arp rhythm defaults, E0..E7 kept", ok);
+    bad += check("old record (np 53): SLICER, CHORD and the arp's defaults, E0..E7 kept", ok);
     /* a record of SLOOP 1.0 (P_COUNT 57, P_E0 49): CHORD (SLOOP 2.0) takes its default */
     r.np = 57;
     for (i = 0; i < 57u; i++)
@@ -159,7 +159,7 @@ int main(void)
         ok &= v[i] == def[i];
     for (i = 0; i < 8u; i++)
         ok &= v[P_E0 + i] == (int16_t)(3000 + 49 + i);
-    bad += check("SLOOP 1.0 record (np 57): CHORD and arp rhythm defaults, the rest kept", ok);
+    bad += check("SLOOP 1.0 record (np 57): CHORD and the arp's defaults, the rest kept", ok);
     /* a record of SLOOP 2.0..2.3 (P_COUNT 58, P_E0 50): the arp rhythm (2.4) takes its defaults */
     r.np = 58;
     for (i = 0; i < 58u; i++)
@@ -173,6 +173,19 @@ int main(void)
     for (i = 0; i < 8u; i++)
         ok &= v[P_E0 + i] == (int16_t)(4000 + 50 + i);
     bad += check("SLOOP 2.0 record (np 58): arp rhythm defaults, the rest kept", ok);
+    /* a record of SLOOP 2.4 (P_COUNT 62, P_E0 54): ROT / SYNC / RHYM / DEJA (2.5) take their defaults */
+    r.np = 62;
+    for (i = 0; i < 62u; i++)
+        r.p[i] = (int16_t)(5000 + i);
+    up_params(&r, v, def);
+    ok = P_ARAT + 1 == P_AROT && P_ADEJA + 1 == P_E0;
+    for (i = 0; i <= P_ARAT; i++)
+        ok &= v[i] == (int16_t)(5000 + i);
+    for (i = P_AROT; i < P_E0; i++)
+        ok &= v[i] == def[i];
+    for (i = 0; i < 8u; i++)
+        ok &= v[P_E0 + i] == (int16_t)(5000 + 54 + i);
+    bad += check("SLOOP 2.4 record (np 62): ROT, SYNC, RHYM, DEJA defaults, the rest kept", ok);
     r.np = P_COUNT;
     for (i = 0; i < P_COUNT; i++)
         r.p[i] = (int16_t)i;

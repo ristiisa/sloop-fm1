@@ -6,6 +6,9 @@ static const char *const N_AMODE[] = {"OFF", "UP", "DN", "UPDN", "RND", "ORD", "
                                      "THMB", "PNKY", "DRNK", "SHUF", "OCTI", "CHRD"};   /* seq.c A_* */
 static const char *const N_AACC[] = {"OFF", "1IN2", "1IN3", "1IN4", "3-3-2", "RND"};   /* seq.c arp_vel */
 static const char *const N_ARAT[] = {"X1", "X2", "X3", "X4"};
+static const char *const N_ASYNC[] = {"NOTE", "BAR", "FREE"};   /* seq.c AS_* */
+static const char *const N_ARHYM[] = {"OFF", "QRTR", "8TH", "OFFB", "GALOP", "SKIP", "DOT8", "TRES", "CINQ",
+                                      "SON32", "SON23", "RUMBA", "BOSSA", "SHIKO", "SOUK", "GAHU"};   /* seq.c ARP_RHYM */
 static const char *const N_DIV[] = {"1/4", "1/8", "1/16", "1/32", "8T", "16T"};
 static const char *const N_SCALE[] = {"CHR", "MAJ", "MIN", "DOR", "MIX", "PEN", "MPEN", "HARM",
                                     "PHRY", "LYD", "LOC", "MEL", "BLUES", "WHOLE", "DIMHW", "DIMWH"};
@@ -89,6 +92,10 @@ static const param_desc_t TP[P_COUNT] = {
     [P_AHITS] = PD("HITS", F_INT, 1, 16, 16),       /* HITS >= STEPS: every step */
     [P_ASTEPS] = PD("STEPS", F_INT, 1, 16, 16),
     [P_ARAT] = PE("RAT", N_ARAT, 0),
+    [P_AROT] = PD("ROT", F_INT, 0, 15, 0),
+    [P_ASYNC] = PE("SYNC", N_ASYNC, 0),
+    [P_ARHYM] = PE("RHYM", N_ARHYM, 0),
+    [P_ADEJA] = PD("DEJA", F_PCT, 0, 127, 0),       /* 0: fresh random, 127: a locked loop */
 };
 /* a preset's extra parameters (preset_t.x) into p, each clamped to its range */
 static void preset_extras(int16_t *p, const preset_t *pr)
@@ -308,6 +315,7 @@ static const page_t PAGES[] = {
     {"ARP", FAM_ARP, SC_TRACK, GR_ARP, {P_AMODE, P_ARATE, P_AOCT, P_AGATE}},
     {"ARP 2", FAM_ARP, SC_TRACK, GR_NONE, {P_ASWING, P_APROB, P_AHOLD, P_AORDER}},
     {"ARP 3", FAM_ARP, SC_TRACK, GR_NONE, {P_AACC, P_AHITS, P_ASTEPS, P_ARAT}},
+    {"ARP 4", FAM_ARP, SC_TRACK, GR_NONE, {P_AROT, P_ASYNC, P_ARHYM, P_ADEJA}},
     {"STEP", FAM_SEQ, SC_STEP, GR_ROLL, {0, 1, 2, 3}},
     {"PATTERN", FAM_SEQ, SC_TRACK, GR_STEPS, {P_SLEN, P_SDIV, P_SSWING, P_SGATE}},
     {"SONG", FAM_SEQ, SC_SONG, GR_NONE, {0xFF, 0xFF, 0xFF, 0xFF}},

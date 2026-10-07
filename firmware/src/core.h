@@ -54,6 +54,7 @@ enum {                          /* per-track parameters */
                                                 * before P_E0 (user presets and projects map by count) */
     P_CHORD,                                   /* chord mode: one key plays a chord of the scale (seq.c) */
     P_AACC, P_AHITS, P_ASTEPS, P_ARAT,         /* arp rhythm: accents, euclidean HITS of STEPS, ratchet (seq.c) */
+    P_AROT, P_ASYNC, P_ARHYM, P_ADEJA,         /* arp: rotate, restart, rhythm masks, deja vu (seq.c) */
     P_E0, P_E1, P_E2, P_E3, P_E4, P_E5, P_E6, P_E7,
     P_COUNT
 };
@@ -183,8 +184,8 @@ typedef struct track {
     /* arp runtime (clock units: samples x BPM, fx.c BEAT_U) */
     uint32_t arp_pos;            /* stopped: units into the current arp step */
     uint32_t arp_abs;            /* playing: the arp step of the transport grid last played */
-    uint32_t arp_idx;
-    uint32_t arp_step;           /* stopped: arp steps since the chord started (accents, HITS) */
+    uint32_t arp_idx;            /* the place in the order of the next note */
+    uint32_t arp_step;          /* stopped: arp steps since the chord started (accents, HITS) */
     uint32_t arp_bag[2];         /* SHUF: the places not yet played this round (64 bits) */
     uint8_t arp_walk;            /* DRNK / SHUF: the place played last */
     uint8_t arp_ch[8];           /* the notes of the arp step (CHRD: up to 8) */
@@ -193,6 +194,8 @@ typedef struct track {
     uint8_t arp_vel;             /* their velocity (accents) */
     uint8_t arp_rat;             /* ratchet hits still to come in this step */
     uint8_t arp_new;             /* a chord just started: its first note now */
+    uint8_t arp_dv[16];          /* DEJA: a random seed per grid place (the loop) */
+    uint8_t arp_ds, arp_dk;      /* DEJA: the seed of this step, the draws taken from it */
     uint32_t arp_off;            /* units to the note-off */
     uint32_t arp_sub, arp_sl;    /* ratchet: units to the next hit, units between hits */
     /* sequencer: synth parts step[], the drum track dstep[] (16 lanes) */
