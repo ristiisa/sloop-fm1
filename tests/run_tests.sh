@@ -95,7 +95,7 @@ run "dice: every style, thousands of rolls: invariants, signatures, scale and re
 $CC -O2 -w -Ibuild/gen -Ifirmware/src -Ifirmware/hal -o "$OUT/grids_test" tests/grids_test.c -lm
 run "grids: the map as Grids, density, levels, ratchets, chaos, lanes / conditions / locks kept, the MAP page, undo" "$OUT/grids_test" "$OUT"
 $CC -O2 -w -Ibuild/gen -Ifirmware/src -Ifirmware/hal -o "$OUT/cond_test" tests/cond_test.c -lm
-run "step conditions: chance, a:b, FIRST, FILL, drums and synths, shift / x2 / undo, recording" "$OUT/cond_test"
+run "step conditions: chance, a:b, FIRST, FILL, AFILL (by the bars), drums and synths, shift / x2 / undo, recording" "$OUT/cond_test"
 $CC -O2 -w -Ibuild/gen -Ifirmware/src -Ifirmware/hal -o "$OUT/plock_test" tests/plock_test.c -lm
 run "parameter locks: played, kept apart, nothing stuck, P-LOCK, follow their steps, saved" "$OUT/plock_test" "$OUT"
 run "DSP render (ANALOG preset 0)" "$OUT/hostsim" 0 0 1 "$OUT/render.wav"

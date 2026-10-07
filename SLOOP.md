@@ -11,6 +11,7 @@ SLOOP is free and open source (GPL-3.0), based on [Felucca](https://github.com/h
 ### New in 2.5
 
 - **Step conditions and FILL.** Every step can play always, by chance (12–88 %), on pass *a* of every *b* (1:2 … 4:4), only on the first pass or never on it, or only with FILL held (or only without): SEQ + a step held + **KNOB 4**. **FILL**: hold FX and a black key while it plays. See [SEQ — steps](#seq--steps-step-sequencer).
+- **AUTO-FILL.** GLO → JAM → **AFILL**: FILL turns itself on in the last bar of every 2, 4, 8 or 16 bars (**2H**–**16H**: the last half bar), counted from PLAY and from each section; holding FILL still works at any time. See [JAM](#jam-glo--jam).
 - **A deeper arpeggiator.** 14 modes (CONV, DIVG, THMB, PNKY, DRNK, SHUF, OCTI, CHRD…), accents, euclidean HITS of STEPS, ratchets, and on ARP 4: ROT, SYNC (note / bar / free), 15 rhythms and DEJA (randomness that repeats). See [ARP pages](#arp-pages--the-arpeggiator).
 - **STRUM.** ARP 3 **RAT** goes on past ×4: **UP2**–**UP4** and **DN2**–**DN4** turn each step into a fast run of 2–4 notes up or down the held notes, and in CHRD mode strum the chord, low to high or high to low.
 - **The arp climbs.** ARP 5: **SHIFT** moves the arp's notes up (or down) the scale by up to 7 degrees each time its pattern comes round, for **CYC** rounds, then it starts over: C E G, E G B, G B D… See [ARP pages](#arp-pages--the-arpeggiator).
@@ -218,7 +219,7 @@ MODE and START are settings of the FM-1: they stay as you left them. In a projec
 
 The 16 white keys are the [punch-in effects](#punch-in-effects); they run while the key is held. The knobs drive the [master](#master-dust-duck-filt): **KNOB 1 FILTER** (turn left: low-pass, right: high-pass, centre: off), **KNOB 2 DUST**, **KNOB 3 DUCK**. Keys pressed while FX is held never play or record notes.
 
-**FILL:** hold FX and any **black key** — FILL is on as long as the key is held (let go of FX first and the key keeps it on, both hands free; FX locked with HOME works too). Steps set to **FILL** play only then, steps set to **!FILL** only when it is off: a drum fill, a crash, a busier bass for the last bar before the drop. The held black key lights up.
+**FILL:** hold FX and any **black key** — FILL is on as long as the key is held (let go of FX first and the key keeps it on, both hands free; FX locked with HOME works too). Steps set to **FILL** play only then, steps set to **!FILL** only when it is off: a drum fill, a crash, a busier bass for the last bar before the drop. The held black key lights up. FILL can also come by itself: GLO → JAM → **AFILL** (see [JAM](#jam-glo--jam)) — in its fill bars FILL steps play and !FILL steps rest exactly as if FILL were held, the subtitle reads *fill on* and every black key lights up; holding FILL works on top of it, in any bar.
 
 **LATCH** (HOME menu → **PUNCH**: HOLD / LATCH, after majnikool's pull request): with **LATCH**, FX + a white key switches its effect on and it stays when you let go of the key and of FX — both hands free. The same key again (with FX) switches it off, another key changes it, **STOP** ends it (so do the end of a song and loading a project or a section; a song going from section to section keeps it). The layer's subtitle reads *key: on/off*. While an effect is on outside the FX layer, the **FX** button stays lit, and the headers show a disc in the FX layer's colour with the effect's name (TRACKS and the drum screens under the loop position; the sound pages in the top bar, the disc only when an octave or P-LOCK is shown) — a latched effect is never invisible. FILL stays as it is: on while its black key is held. Back to **HOLD** ends a latched effect. PUNCH is a setting of the FM-1, saved with the lights, not with a project.
 
@@ -274,7 +275,7 @@ The 16 white keys are the 16 steps of the page; the lit ones play. The first fou
 - **Conditions:** hold a step and turn **KNOB 4** — when the step plays (the dial shows it, the step gets a small square in its corner; on the drum grid a line over it). On the drum track a step has one condition for all its sounds. A step that does not play is a rest: its notes, ties and ratchets are silent; when it plays it keeps its chord, levels and ratchets.
   - **ALWAYS** (the default: every new step, every empty step) · **12 %, 25 %, 50 %, 75 %, 88 %**: a chance, drawn each time the step comes round.
   - **1:2 2:2 1:3 2:3 3:3 1:4 2:4 3:4 4:4**: on pass *a* of every *b* of the track's pattern (3:4 plays on the 3rd, 7th, 11th… time round). Passes count from PLAY (and from each section of the song), each track on its own length, so a 3-step pattern and a 16-step one count their own rounds.
-  - **FILL** / **!FILL**: only while FILL is held (FX + a black key) / only while it is not.
+  - **FILL** / **!FILL**: only while FILL is on — held (FX + a black key), or in a fill bar of AFILL (GLO → JAM) — / only while it is not.
   - **1ST** / **!1ST**: only the first time round after PLAY (or a section) / every time but the first.
   - Conditions move with their steps: EDIT's SHIFT and LENGTH ×2, undo / redo, the sections and the saved projects keep them; erasing a step or clearing the track takes them away; a note recorded into an empty step starts ALWAYS, one added to a step keeps its condition.
 - **No step held:** KNOB 1 the sound / note to set · KNOB 2 **DIV** (1/4 … 1/32, triplets) · KNOB 3 **SWING** of the track · KNOB 4 **LENGTH** (1–64 steps; each track loops on its own length, polymeters stay in phase).
@@ -336,6 +337,12 @@ On the whole mix, after the tracks' sends (FX + KNOB 1–3, or GLO → MASTER):
 - **DUCK** 0–100 %: every kick pumps the synth tracks down and back over an 1/8 note — the sidechain sound, in time at any tempo.
 - **FILT**: a DJ filter. Left of centre a low-pass closing, right a high-pass opening, centre OFF. It glides (no zipper noise).
 - **ROLL** (GLO → MASTER): the note-repeat rate of ARP + key.
+
+## JAM (GLO → JAM)
+
+Settings for playing a song live, saved with the project (a song section keeps the one loaded):
+
+- **KNOB 4 AFILL** — FILL by itself. **OFF** (the default: FILL only while held), **2**, **4**, **8**, **16**: while the transport plays, the last bar of every 2 / 4 / 8 / 16 bars is a fill bar — [FILL](#fx--punch) steps play and !FILL steps rest, exactly as if FILL were held. **2H**, **4H**, **8H**, **16H**: only the last half bar (beats 3 and 4). A bar is 4 beats of the song's clock (as the arp's SYNC BAR), counted from PLAY and again from the start of each song section (live or in song mode) — not the tracks' loops: a 3-step or 12-step track plays its FILL steps in the same bars as a 16-step one. Holding FILL (FX + a black key) still turns it on in any bar. In a fill bar the header of TRACKS and the drum screens shows the beat lights in the FX layer's colour and *fill* (where a latched punch-in shows its name, the beat lights alone), and the FX layer reads *fill on* with every black key lit.
 
 ## Punch-in effects
 
@@ -435,7 +442,7 @@ Open it from the installer page, or with **`OPEN-EDITOR.bat`** (`http://localhos
 - **Sound** — every parameter of the selected track, the engines and presets, files.
 - **Sequencer** — the pattern settings and the steps. On the **drum track**: a grid of the 16 sounds × the steps, with the **kit**. Choose a **level** (GHOST, SOFT, NORM, HARD) and a **roll** (x1–x4), then click: a hit; click it again (same level and roll): cleared; Shift+click: one level louder.
 - **Tracks** — the four channel strips (level, pan, mute; SOLO and REC shown as on the device).
-- **Library**, **Samples** (with CHOP), **Projects**, **Settings** (GLOBAL, **MASTER**: DUST, DUCK, FILT, ROLL; DRUMS).
+- **Library**, **Samples** (with CHOP), **Projects**, **Settings** (GLOBAL, **MASTER**: DUST, DUCK, FILT, ROLL; DRUMS; **JAM**: AFILL).
 - **Backup** (Projects tab): **Save a backup** writes everything on the FM-1 to one file (SLOOP-backup-DATE.json): the music you are working on, the projects 1–4 (the song sections A–D), the 32 user presets, the samples USR1–3 and the settings (colours, calibration, the song order, the lights, SYNC). **Restore from a file** puts it all back — what is on the FM-1 is replaced. A damaged file is refused before anything is written, every object is checked as a load checks it, and each one is written as a save writes it (a cut-off restore never leaves half an object). Stop the song (PLAY) before restoring.
 
 The protocol is documented in [web/EDITOR_PROTOCOL.md](web/EDITOR_PROTOCOL.md) (v6).

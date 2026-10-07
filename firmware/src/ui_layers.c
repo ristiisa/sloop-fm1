@@ -640,7 +640,7 @@ static void layer_screen_draw(void)
     switch (layer) {
     case LY_FX:                                         /* the 16 punch-in effects */
         col = TE_DRUM;
-        str_cpy(sub, fill_keys ? "fill on" : punch_latch ? "key: on/off" : "hold + key", sizeof sub);   /* (black: FILL) */
+        str_cpy(sub, fill_on() ? "fill on" : punch_latch ? "key: on/off" : "hold + key", sizeof sub);   /* (black: FILL, AFILL) */
         for (i = 0; i < 16u; i++) {
             int on = punch.req == (int8_t)i;
             str_cpy(tl[i].lab, PUNCH_SHORT[i], 8);
