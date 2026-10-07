@@ -1,9 +1,9 @@
 /* SPDX-License-Identifier: GPL-3.0-only
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
-/* Host test of the project formats (firmware/src/project.c, -DPROJ_HOST part). Format 7 ("FUN7",
+/* Host test of the project formats (firmware/src/project.c, -DPROJ_HOST part). Format 8 ("FUN8",
  * SLOOP 2.5: 10-byte steps with levels and ratchets, the drum track's 16 lanes, the arp rhythm, ROT /
- * SYNC / RHYM / DEJA, SHIFT / CYC, a condition per step, the parameter locks, checked on load) is written; format 6 ("FUN6",
- * SLOOP 2.5 before SHIFT), format 5 ("FUN5", SLOOP 2.4), format 4 ("FUN4", SLOOP 2.0..2.3), format 3 ("FUN3", SLOOP 1.x), format 2 ("FUN2", 53 parameters per track) and format 1 ("FUN1"), built
+ * SYNC / RHYM / DEJA, SHIFT / CYC, TURN, a condition per step, the parameter locks, checked on load) is written; format 7
+ * ("FUN7", SLOOP 2.5 before TURN), format 6 ("FUN6", SLOOP 2.5 before SHIFT), format 5 ("FUN5", SLOOP 2.4), format 4 ("FUN4", SLOOP 2.0..2.3), format 3 ("FUN3", SLOOP 1.x), format 2 ("FUN2", 53 parameters per track) and format 1 ("FUN1"), built
  * byte for byte as the firmware stored them, convert: every old value at its parameter, the parameters
  * added since at their defaults, the swings onto the MPC scale (x 0.8), synth steps as they were, the
  * drum track's notes onto its lanes (accent: hard), globals, selection, the engine bytes (kept; the
@@ -112,7 +112,8 @@ int main(void)
     static project_v1_t v1;
     static project_t q, q2;
     static union {
-        project_t v7;
+        project_t v8;
+        project_v7_t v7;
         project_v6_t v6;
         project_v5_t v5;
         project_v4_t v4;
@@ -123,25 +124,30 @@ int main(void)
     uint32_t i, t;
     int bad = 0, ok;
 
-    bad += check("layout: P_CHORD, the arp rhythm, ROT..DEJA, SHIFT, CYC, P_E0 (60); P_COUNT = format 6's + 2",
-                 P_CHORD + 1 == P_AACC && P_ARAT + 1 == P_AROT && P_ADEJA + 1 == P_ASHIFT && P_ACYC + 1 == P_E0 &&
-                 P_E0 == 60 && P_COUNT == 68 && P_COUNT == PROJ_NP_V6 + 2u && P_COUNT == PROJ_NP_V5 + 6u &&
-                 P_COUNT == PROJ_NP_V4 + 10u && P_SLDEPTH + 1 == P_CHORD);
+    bad += check("layout: P_CHORD, the arp rhythm, ROT..DEJA, SHIFT, CYC, TURN, P_E0 (61); P_COUNT = format 7's + 1",
+                 P_CHORD + 1 == P_AACC && P_ARAT + 1 == P_AROT && P_ADEJA + 1 == P_ASHIFT && P_ACYC + 1 == P_TURN &&
+                 P_TURN + 1 == P_E0 && P_E0 == 61 && P_COUNT == 69 && P_COUNT == PROJ_NP_V7 + 1u &&
+                 P_COUNT == PROJ_NP_V6 + 3u && P_COUNT == PROJ_NP_V5 + 7u && P_COUNT == PROJ_NP_V4 + 11u && P_SLDEPTH + 1 == P_CHORD);
     bad += check("format 6: format 5's + 32 (ROT..DEJA) + a condition per step and track + the locks, then the sum",
                  sizeof(project_v6_t) == sizeof(project_v5_t) + 32u + NTRK * NSTEP + 4u * PLK_MAX &&
                  __builtin_offsetof(project_v6_t, cond) + NTRK * NSTEP == __builtin_offsetof(project_v6_t, lk) &&
                  __builtin_offsetof(project_v6_t, lk) + 4u * PLK_MAX + 4u == sizeof(project_v6_t));
     bad += check("format 7: format 6's + 16 (SHIFT, CYC), the conditions and the locks, then the sum",
-                 sizeof(project_t) == sizeof(project_v6_t) + 16u &&
+                 sizeof(project_v7_t) == sizeof(project_v6_t) + 16u &&
+                 __builtin_offsetof(project_v7_t, cond) + NTRK * NSTEP == __builtin_offsetof(project_v7_t, lk) &&
+                 __builtin_offsetof(project_v7_t, lk) + 4u * PLK_MAX + 4u == sizeof(project_v7_t));
+    bad += check("format 8: format 7's + 8 (TURN), the conditions and the locks, then the sum",
+                 sizeof(project_t) == sizeof(project_v7_t) + 8u &&
                  __builtin_offsetof(project_t, cond) + NTRK * NSTEP == __builtin_offsetof(project_t, lk) &&
                  __builtin_offsetof(project_t, lk) + 4u * PLK_MAX + 4u == sizeof(project_t));
     /* (.noinit holds 200 bytes besides the slots: fm1_crash, felucca_dbg, bootguard, panel, settings) */
-    bad += check("format 7 fits one flash object; 4 slots fit .noinit", sizeof(project_t) <= 3840u &&
+    bad += check("format 8 fits one flash object; 4 slots fit .noinit", sizeof(project_t) <= 3840u &&
                  4u * sizeof(project_t) < 0x3D50u - 512u);
-    bad += check("format 6 = format 5 (3144 bytes) + 32 + 256 conditions + 56 locks (3656); format 7: 3672",
+    bad += check("format 6 = format 5 (3144 bytes) + 32 + 256 conditions + 56 locks (3656); 7: 3672; 8: 3680",
                  sizeof(project_v5_t) == 3144u && sizeof(project_v6_t) == 3656u && PLK_MAX == 56u &&
-                 __builtin_offsetof(project_v6_t, lk) == 3656u - 4u - 4u * PLK_MAX && sizeof(project_t) == 3672u &&
-                 __builtin_offsetof(project_t, lk) == 3672u - 4u - 4u * PLK_MAX);
+                 __builtin_offsetof(project_v6_t, lk) == 3656u - 4u - 4u * PLK_MAX && sizeof(project_v7_t) == 3672u &&
+                 __builtin_offsetof(project_v7_t, lk) == 3672u - 4u - 4u * PLK_MAX && sizeof(project_t) == 3680u &&
+                 __builtin_offsetof(project_t, lk) == 3680u - 4u - 4u * PLK_MAX);
 
     /* format 3 (SLOOP 1.x) */
     memset(&v3, 0, sizeof v3);
@@ -156,13 +162,13 @@ int main(void)
     v3.sum = proj_hash(&v3, sizeof v3 - 4u);
     memcpy(&buf, &v3, sizeof v3);
     ok = proj_import(&q, &buf, (int)sizeof v3);
-    bad += check("FUN3 -> FUN7: converted, valid format 7 slot", ok && proj_ok(&q) && q.magic == PROJ_MAGIC);
+    bad += check("FUN3 -> FUN8: converted, valid format 8 slot", ok && proj_ok(&q) && q.magic == PROJ_MAGIC);
     ok = q.sel == 3 && q.g[G_SWING] == 40;
     for (i = 0; i < PROJ_NG_V3; i++)
         ok &= i == G_SWING || q.g[i] == (int16_t)(300 + i);
     for (i = PROJ_NG_V3; i < G_COUNT; i++)
         ok &= q.g[i] == GP[i].def;
-    bad += check("FUN3 -> FUN7: globals (swing 50 -> 40: the MPC scale), the new ones default", ok);
+    bad += check("FUN3 -> FUN8: globals (swing 50 -> 40: the MPC scale), the new ones default", ok);
     ok = 1;
     for (t = 0; t < NTRK; t++) {
         const proj_trk_t *n = &q.t[t];
@@ -175,7 +181,7 @@ int main(void)
         for (k = 0; k < 8u; k++)
             ok &= n->p[P_E0 + k] == oldv(t, PROJ_NP_V3 - 8u + k);
     }
-    bad += check("FUN3 -> FUN7: parameters (P_E0.. moved), steps, drum notes -> lanes", ok);
+    bad += check("FUN3 -> FUN8: parameters (P_E0.. moved), steps, drum notes -> lanes", ok);
 
     /* format 2, as written before the SLICER */
     memset(&v2, 0, sizeof v2);
@@ -190,16 +196,16 @@ int main(void)
     bad += check("FUN2 image is 2552 bytes (as stored)", sizeof v2 == 2552u);
     memcpy(&buf, &v2, sizeof v2);
     ok = proj_import(&q, &buf, (int)sizeof v2);
-    bad += check("FUN2 -> FUN7: converted, valid format 7 slot", ok && proj_ok(&q) && q.magic == PROJ_MAGIC);
+    bad += check("FUN2 -> FUN8: converted, valid format 8 slot", ok && proj_ok(&q) && q.magic == PROJ_MAGIC);
     ok = q.sel == 2;
     for (i = 0; i < PROJ_NG_V2; i++)
         ok &= i == G_SWING || q.g[i] == (int16_t)(500 + i);
-    bad += check("FUN2 -> FUN7: globals and selected track", ok);
+    bad += check("FUN2 -> FUN8: globals and selected track", ok);
     ok = 1;
     for (t = 0; t < NTRK; t++)
         ok &= track_ok_v2(&q.t[t], &v2.t[t], t);
-    bad += check("FUN2 -> FUN7: every parameter mapped, SLICER OFF, CHORD OFF (4 tracks)", ok);
-    bad += check("FUN2 -> FUN7: engine bytes kept (WHEEL 7, ANALOG 0, TRIO 6), drum 0",
+    bad += check("FUN2 -> FUN8: every parameter mapped, SLICER OFF, CHORD OFF (4 tracks)", ok);
+    bad += check("FUN2 -> FUN8: engine bytes kept (WHEEL 7, ANALOG 0, TRIO 6), drum 0",
                  q.t[0].engine == 7 && q.t[1].engine == 0 && q.t[2].engine == 6 && q.t[3].engine == 0 &&
                  str_eq(ENGINES[7]->name, "WHEEL") && str_eq(ENGINES[6]->name, "TRIO") && NENGINES > 8);
 
@@ -235,7 +241,7 @@ int main(void)
                 ok &= q.t[t].p[P_E0 + k] == oldv(t, PROJ_NP_V4 - 8u + k);
             ok &= q.t[t].engine == OLD_ENG[t] && q.t[t].preset == t + 2u && !memcmp(q.t[t].step, v4.t[t].step, sizeof q.t[t].step);
         }
-        bad += check("FUN4 -> FUN7: parameters by id, the arp rhythm default, P_E0.. moved, steps", ok);
+        bad += check("FUN4 -> FUN8: parameters by id, the arp rhythm default, P_E0.. moved, steps", ok);
         v4.t[2].p[7]++;
         memcpy(&buf, &v4, sizeof v4);
         bad += check("FUN4 with a bad checksum: refused", !proj_import(&q2, &buf, (int)sizeof v4));
@@ -269,7 +275,7 @@ int main(void)
             for (k = 0; k <= P_ARAT; k++)
                 ok &= q.t[t].p[k] == oldv(t, k);
             ok &= q.t[t].p[P_AROT] == 0 && q.t[t].p[P_ASYNC] == 0 && q.t[t].p[P_ARHYM] == 0 && q.t[t].p[P_ADEJA] == 0 &&
-                  q.t[t].p[P_ASHIFT] == 0 && q.t[t].p[P_ACYC] == 4;
+                  q.t[t].p[P_ASHIFT] == 0 && q.t[t].p[P_ACYC] == 4 && q.t[t].p[P_TURN] == 0;
             for (k = 0; k < 8u; k++)
                 ok &= q.t[t].p[P_E0 + k] == oldv(t, PROJ_NP_V5 - 8u + k);
             ok &= q.t[t].engine == OLD_ENG[t] && q.t[t].preset == t + 4u && !memcmp(q.t[t].step, v5.t[t].step, sizeof q.t[t].step);
@@ -278,7 +284,7 @@ int main(void)
         }
         for (k = 0; k < PLK_MAX; k++)
             ok &= !q.lk[k].id;
-        bad += check("FUN5 -> FUN7: parameters by id, ROT..CYC default, P_E0.. moved, steps, lanes, conditions ALWAYS, no locks", ok);
+        bad += check("FUN5 -> FUN8: parameters by id, ROT..TURN default, P_E0.. moved, steps, lanes, conditions ALWAYS, no locks", ok);
         v5.t[1].p[50]++;
         memcpy(&buf, &v5, sizeof v5);
         bad += check("FUN5 with a bad checksum: refused", !proj_import(&q2, &buf, (int)sizeof v5));
@@ -322,19 +328,19 @@ int main(void)
         for (t = 0; t < NTRK; t++) {
             for (k = 0; k <= P_ADEJA; k++)
                 ok &= q.t[t].p[k] == oldv(t, k);
-            ok &= q.t[t].p[P_ASHIFT] == 0 && q.t[t].p[P_ACYC] == 4;
+            ok &= q.t[t].p[P_ASHIFT] == 0 && q.t[t].p[P_ACYC] == 4 && q.t[t].p[P_TURN] == 0;
             for (k = 0; k < 8u; k++)
                 ok &= q.t[t].p[P_E0 + k] == oldv(t, PROJ_NP_V6 - 8u + k);
             ok &= q.t[t].engine == OLD_ENG[t] && q.t[t].preset == t + 3u && !memcmp(q.t[t].step, v6.t[t].step, sizeof q.t[t].step);
         }
-        bad += check("FUN6 -> FUN7: parameters by id, SHIFT / CYC default, P_E0.. moved, steps, lanes, conditions", ok);
+        bad += check("FUN6 -> FUN8: parameters by id, SHIFT / CYC / TURN default, P_E0.. moved, steps, lanes, conditions", ok);
         ok = q.lk[0].id == P_E1 + 1 && q.lk[0].ts == (0 << 6 | 4) && q.lk[1].id == P_E7 + 1 && q.lk[1].v == -3 &&
              q.lk[2].id == P_ED_FLT + 1 && q.lk[2].v == 21 && q.lk[9].id == P_SLDEPTH + 1 && !q.lk[3].id;
         host_tracks_init();
         proj_apply(&q, 1);
         ok &= plk_get(&trk[0], 4, P_E1, &v) && v == ENGINES[OLD_ENG[0]]->edit[1].def && plk_count(&trk[1], 6) == 1u &&
               plk_get(TDRUM, 4, P_SLDEPTH, &v) && v == 64 && plk_count(&trk[0], 4) == 1u;
-        bad += check("FUN6 -> FUN7: the locks kept, those of P_E0..P_E7 moved with it (+2)", ok);
+        bad += check("FUN6 -> FUN8: the locks kept, those of P_E0..P_E7 moved with it (+3)", ok);
         v6.lk[1].v++;
         memcpy(&buf, &v6, sizeof v6);
         bad += check("FUN6 with a bad checksum: refused", !proj_import(&q2, &buf, (int)sizeof v6));
@@ -344,7 +350,64 @@ int main(void)
         bad += check("FUN6 with a wrong length: refused", !proj_import(&q2, &buf, (int)sizeof v6 - 2));
     }
 
-    /* a FUN7 round trip: stored as is (an engine added since: 8) */
+    /* format 7 (SLOOP 2.5 before TURN): by id up to P_ACYC, TURN its default (0), P_E0.. moved; the
+     * conditions and the locks as they were, a lock of P_E0..P_E7 (id + 1) moved with it */
+    {
+        static project_v7_t v7;
+        uint32_t k;
+        int16_t v = 0;
+        memset(&v7, 0, sizeof v7);
+        v7.magic = PROJ_MAGIC_V7;
+        v7.size = sizeof v7;
+        for (i = 0; i < G_COUNT; i++)
+            v7.g[i] = (int16_t)(700 + i);
+        v7.sel = 2;
+        for (t = 0; t < NTRK; t++) {
+            for (k = 0; k < PROJ_NP_V7; k++)
+                v7.t[t].p[k] = oldv(t, k);
+            v7.t[t].engine = OLD_ENG[t];
+            v7.t[t].preset = (uint8_t)(t + 5u);
+            v7.t[t].step[k = t + 11u].lvl = 0x1E;
+            v7.t[t].step[k].rat = 0x09;
+            v7.cond[t][t + 2u] = (uint8_t)(CN_P25 + t);
+        }
+        dstep_set(&v7.t[TRK_DRUM].dstep[6], 12, LV_SOFT, 2);
+        v7.lk[0] = (plk_t){0 << 6 | 5, 60 + 0 + 1, ENGINES[OLD_ENG[0]]->edit[0].def};   /* EDIT 1 (P_E0 was 60) */
+        v7.lk[3] = (plk_t){2 << 6 | 7, 60 + 7 + 1, 5};                                 /* EDIT 8 (P_E7 was 67) */
+        v7.lk[4] = (plk_t){1 << 6 | 62, P_DLY + 1, 99};
+        v7.lk[11] = (plk_t){TRK_DRUM << 6 | 6, P_SLRATE + 1, 2};
+        v7.sum = proj_hash(&v7, sizeof v7 - 4u);
+        bad += check("FUN7 image is 3672 bytes (as stored)", sizeof v7 == 3672u);
+        memcpy(&buf, &v7, sizeof v7);
+        ok = proj_import(&q, &buf, (int)sizeof v7) && proj_ok(&q) && q.magic == PROJ_MAGIC && q.sel == 2 &&
+             !memcmp(q.g, v7.g, sizeof q.g) && !memcmp(q.cond, v7.cond, sizeof q.cond);
+        for (t = 0; t < NTRK; t++) {
+            for (k = 0; k <= P_ACYC; k++)
+                ok &= q.t[t].p[k] == oldv(t, k);
+            ok &= q.t[t].p[P_TURN] == 0;
+            for (k = 0; k < 8u; k++)
+                ok &= q.t[t].p[P_E0 + k] == oldv(t, PROJ_NP_V7 - 8u + k);
+            ok &= q.t[t].engine == OLD_ENG[t] && q.t[t].preset == t + 5u && !memcmp(q.t[t].step, v7.t[t].step, sizeof q.t[t].step);
+        }
+        bad += check("FUN7 -> FUN8: parameters by id, TURN 0, P_E0.. moved, steps, lanes, levels, conditions", ok);
+        ok = q.lk[0].id == P_E0 + 1 && q.lk[0].ts == (0 << 6 | 5) && q.lk[3].id == P_E7 + 1 && q.lk[3].v == 5 &&
+             q.lk[4].id == P_DLY + 1 && q.lk[4].v == 99 && q.lk[11].id == P_SLRATE + 1 && !q.lk[1].id;
+        host_tracks_init();
+        proj_apply(&q, 1);
+        ok &= plk_get(&trk[0], 5, P_E0, &v) && v == ENGINES[OLD_ENG[0]]->edit[0].def && plk_get(&trk[2], 7, P_E7, &v) &&
+              v == 5 && plk_get(&trk[1], 62, P_DLY, &v) && v == 99 && plk_get(TDRUM, 6, P_SLRATE, &v) && v == 2 &&
+              !plk_get(&trk[2], 7, P_E6, &v) && trk[1].p[P_TURN] == 0;
+        bad += check("FUN7 -> FUN8: the locks kept, those of P_E0..P_E7 moved with it (+1)", ok);
+        v7.t[3].p[20]++;
+        memcpy(&buf, &v7, sizeof v7);
+        bad += check("FUN7 with a bad checksum: refused", !proj_import(&q2, &buf, (int)sizeof v7));
+        v7.t[3].p[20]--;
+        v7.sum = proj_hash(&v7, sizeof v7 - 4u);
+        memcpy(&buf, &v7, sizeof v7);
+        bad += check("FUN7 with a wrong length: refused", !proj_import(&q2, &buf, (int)sizeof v7 - 2));
+    }
+
+    /* a FUN8 round trip: stored as is (an engine added since: 8) */
     q.t[1].engine = 8;
     q.t[0].step[3].lvl = 0x9C;
     q.t[0].step[3].rat = 0x27;
@@ -353,24 +416,27 @@ int main(void)
     q.t[2].p[P_ADEJA] = 100;
     q.t[2].p[P_ASHIFT] = -3;
     q.t[2].p[P_ACYC] = 7;
+    q.t[1].p[P_TURN] = 35;
+    q.t[TRK_DRUM].p[P_TURN] = 100;
     q.sum = proj_sum(&q);
     memcpy(&buf, &q, sizeof q);
-    bad += check("FUN7 -> FUN7: as stored (levels, ratchets, lanes, engine 8, RHYM, DEJA, SHIFT, CYC)",
+    bad += check("FUN8 -> FUN8: as stored (levels, ratchets, lanes, engine 8, RHYM, DEJA, SHIFT, CYC, TURN)",
                  proj_import(&q2, &buf, (int)sizeof q) && !memcmp(&q, &q2, sizeof q) && q2.t[1].engine == 8 &&
-                 q2.t[2].p[P_ASHIFT] == -3 && q2.t[2].p[P_ACYC] == 7);
+                 q2.t[2].p[P_ASHIFT] == -3 && q2.t[2].p[P_ACYC] == 7 && q2.t[1].p[P_TURN] == 35 &&
+                 q2.t[TRK_DRUM].p[P_TURN] == 100);
     q.cond[0][3] = CN_1_4;
     q.cond[TRK_DRUM][5] = CN_P25;
     q.cond[2][63] = CN_NFIRST;
     q.sum = proj_sum(&q);
     memcpy(&buf, &q, sizeof q);
-    bad += check("FUN7 -> FUN7: as stored (levels, ratchets, lanes, engine 8, conditions)",
+    bad += check("FUN8 -> FUN8: as stored (levels, ratchets, lanes, engine 8, conditions)",
                  proj_import(&q2, &buf, (int)sizeof q) && !memcmp(&q, &q2, sizeof q) && q2.t[1].engine == 8 &&
                  q2.cond[0][3] == CN_1_4 && q2.cond[TRK_DRUM][5] == CN_P25 && q2.cond[2][63] == CN_NFIRST);
     q.lk[0] = (plk_t){0 << 6 | 3, P_ED_FLT + 1, 40};
     q.lk[7] = (plk_t){TRK_DRUM << 6 | 5, P_SLCR + 1, 2};
     q.sum = proj_sum(&q);
     memcpy(&buf, &q, sizeof q);
-    bad += check("FUN7 -> FUN7: as stored (levels, ratchets, lanes, engine 8, locks)",
+    bad += check("FUN8 -> FUN8: as stored (levels, ratchets, lanes, engine 8, locks)",
                  proj_import(&q2, &buf, (int)sizeof q) && !memcmp(&q, &q2, sizeof q) && q2.t[1].engine == 8 &&
                  q2.lk[7].v == 2);
 
@@ -382,14 +448,17 @@ int main(void)
     memcpy(&buf, &v2, sizeof v2);
     bad += check("FUN2 with a wrong length: refused", !proj_import(&q2, &buf, (int)sizeof v2 - 2));
     memcpy(&buf, &q, sizeof q);
-    buf.v7.magic = PROJ_MAGIC_V3;
-    bad += check("FUN7 size with a FUN3 magic: refused", !proj_import(&q2, &buf, (int)sizeof q));
+    buf.v8.magic = PROJ_MAGIC_V3;
+    bad += check("FUN8 size with a FUN3 magic: refused", !proj_import(&q2, &buf, (int)sizeof q));
     memcpy(&buf, &q, sizeof q);
-    buf.v7.magic = PROJ_MAGIC_V6;
-    bad += check("FUN7 size with a FUN6 magic: refused", !proj_import(&q2, &buf, (int)sizeof q));
+    buf.v8.magic = PROJ_MAGIC_V6;
+    bad += check("FUN8 size with a FUN6 magic: refused", !proj_import(&q2, &buf, (int)sizeof q));
     memcpy(&buf, &q, sizeof q);
-    buf.v7.lk[0].v++;
-    bad += check("FUN7 with a lock changed (bad checksum): refused", !proj_import(&q2, &buf, (int)sizeof q));
+    buf.v8.magic = PROJ_MAGIC_V7;
+    bad += check("FUN8 size with a FUN7 magic: refused", !proj_import(&q2, &buf, (int)sizeof q));
+    memcpy(&buf, &q, sizeof q);
+    buf.v8.lk[0].v++;
+    bad += check("FUN8 with a lock changed (bad checksum): refused", !proj_import(&q2, &buf, (int)sizeof q));
     memcpy(&buf, &v3, sizeof v3);
     buf.v3.t[2].step[7].vel ^= 1u;
     bad += check("FUN3 with a bad checksum: refused", !proj_import(&q2, &buf, (int)sizeof v3));
@@ -408,7 +477,7 @@ int main(void)
         ok &= q.t[t].preset == 0xFF && q.t[t].p[P_SLCR] == 0 && q.t[t].p[P_LEVEL] == TP[P_LEVEL].def &&
               q.t[t].p[P_E0] == ENGINES[trk_def_engine(t)]->edit[0].def &&
               (t == TRK_DRUM ? dstep_mask(&q.t[t].dstep[0]) == 0u : q.t[t].step[0].time == ST_REST);
-    bad += check("FUN1 -> FUN7: track 1 mapped, tracks 2..4 defaults", ok);
+    bad += check("FUN1 -> FUN8: track 1 mapped, tracks 2..4 defaults", ok);
 
     /* capture / apply: the working project round trip */
     host_tracks_init();

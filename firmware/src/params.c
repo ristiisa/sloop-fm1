@@ -100,6 +100,7 @@ static const param_desc_t TP[P_COUNT] = {
     [P_ADEJA] = PD("DEJA", F_PCT, 0, 127, 0),       /* 0: fresh random, 127: a locked loop */
     [P_ASHIFT] = {"SHIFT", F_INT, -7, 7, 0, N_ASHIFT, 0},   /* degrees of the scale a cycle (CHR: semitones) */
     [P_ACYC] = PD("CYC", F_INT, 2, 8, 4),
+    [P_TURN] = PD("TURN", F_PCT, 0, 100, 0),        /* the chance a step is rewritten as it comes round */
 };
 /* a preset's extra parameters (preset_t.x) into p, each clamped to its range */
 static void preset_extras(int16_t *p, const preset_t *pr)
@@ -323,6 +324,7 @@ static const page_t PAGES[] = {
     {"ARP 5", FAM_ARP, SC_TRACK, GR_NONE, {P_ASHIFT, P_ACYC, 0xFF, 0xFF}},
     {"STEP", FAM_SEQ, SC_STEP, GR_ROLL, {0, 1, 2, 3}},
     {"PATTERN", FAM_SEQ, SC_TRACK, GR_STEPS, {P_SLEN, P_SDIV, P_SSWING, P_SGATE}},
+    {"PATTERN 2", FAM_SEQ, SC_TRACK, GR_NONE, {P_TURN, 0xFF, 0xFF, 0xFF}},
     {"SONG", FAM_SEQ, SC_SONG, GR_NONE, {0xFF, 0xFF, 0xFF, 0xFF}},
     {"TRACKS", FAM_TRK, SC_TRK, GR_TRK, {0, 1, 2, 3}},   /* REC button; TRACK LEVEL LEN PAN */
     {"DRUMS", FAM_TRK, SC_DRUM, GR_NONE, {0xFF,0xFF,0xFF,0xFF}},
