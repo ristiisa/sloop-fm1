@@ -3,6 +3,9 @@
 # Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments
 # Host tests (no hardware). Run from the repo root after ./build.sh:
 #   tests/run_tests.sh
+# The tests build and run in parallel, JOBS at a time (default: the CPU count), their output printed
+# in this order once all are done; the ones that time themselves (costs, the CPU budget) run after
+# them, one at a time. JOBS=1: one at a time throughout.
 #
 # Regression suite (tests/regress.c, tests/target_budget.py; details at the top of regress.c):
 #   golden renders  every engine x preset, the drum kit, voice modes, FX sends, a 4-track mix: one hash
@@ -20,114 +23,97 @@ set -e
 export AC79_SDK="${AC79_SDK:-$HOME/fw-AC79_AIoT_SDK}"
 cd "$(dirname "$0")/.."
 OUT=build/host
-mkdir -p "$OUT"
+LOG=$OUT/log
+rm -rf "$LOG"
+mkdir -p "$OUT" "$LOG" build/tracks_demo build/slicer_demo build/color_demo
 CC="${CC:-cc} -O1 -Wall -Wno-unused-function"
+SIM="-O2 -w -Ibuild/gen -Ifirmware/src -Ifirmware/hal"   # the tests that build the firmware's sources
+JOBS="${JOBS:-$( (nproc || sysctl -n hw.ncpu) 2>/dev/null || echo 4)}"
 fail=0
+n=0
 run() { echo "== $1"; shift; "$@" || fail=1; }
+
+# job "what it tests" command...: in the background, JOBS at a time; its output and status in $LOG
+job() {
+    n=$((n + 1))
+    k=$(printf %03d $n)
+    echo "$1" > "$LOG/$k.name"
+    shift
+    while [ $((n - 1 - $(ls "$LOG" | grep -c '\.rc$'))) -ge "$JOBS" ]; do sleep 0.05; done
+    ( if "$@" > "$LOG/$k.out" 2>&1; then echo 0; else echo 1; fi > "$LOG/$k.rc" ) &
+}
+# t name flags args...: build tests/name.c into $OUT/name with $CC flags, then run it with args
+t() { tn=$1; tf=$2; shift 2; $CC $tf -o "$OUT/$tn" "tests/$tn.c" -lm && "$OUT/$tn" "$@"; }
 
 [ -f build/felucca.fwsc ] || { echo "run ./build.sh first"; exit 1; }
 
-$CC -o "$OUT/storage_test" tests/storage_test.c
-run "flash storage (A/B, torn writes)" "$OUT/storage_test"
-
-$CC -o "$OUT/recovery_test" tests/recovery_test.c
-run "application USB recovery and boot-loop guard" "$OUT/recovery_test"
-
-$CC -o "$OUT/arranger_test" tests/arranger_test.c
-run "song order, timing, repeats and missing scenes" "$OUT/arranger_test"
-$CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/song_audio_test" tests/song_audio_test.c -lm
-run "song: four simultaneous tracks, scene transition and stop" "$OUT/song_audio_test" "$OUT/song-demo.wav"
-$CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/song_ui_test" tests/song_ui_test.c -lm
-run "song screen: commands, load (OCT+ twice), display bounds" "$OUT/song_ui_test" "$OUT/song-screen.ppm"
-
-$CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/studio_drums_test" tests/studio_drums_test.c -lm
-run "drum lanes, kit audio, metronome, record arm, free take" "$OUT/studio_drums_test" "$OUT/drum-styles.wav"
-$CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/seq2_test" tests/seq2_test.c -lm
-run "sequencer 2.0: no drift, ratchets, roll, erase / undo, ghost / hard, chords, mute / solo" "$OUT/seq2_test"
-
-$CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/drumkit_test" tests/drumkit_test.c -lm
-run "synthesised drum kits: every kit x sound bounded, audible, finite, levels, cost" "$OUT/drumkit_test" "$OUT/drum-kits.wav" "$OUT/drum-kits.txt"
-$CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/punch_test" tests/punch_test.c -lm
-run "punch-in FX: 16 effects, bounded, dry after release, FX-held keys, LATCH" "$OUT/punch_test" "$OUT/punch-fx.wav"
-
-$CC -O2 -w -Ibuild/gen -Ifirmware/src -Ifirmware/hal -o "$OUT/ui_pages_test" tests/ui_pages_test.c -lm
-run "live UI: pages, layers (punch, steps, erase, roll, key, mix), holds, drums, REC, fuzz" "$OUT/ui_pages_test" "$OUT"
-$CC -O2 -w -Ibuild/gen -o "$OUT/font_test" tests/font_test.c
-run "text: both font sizes pixel-exact (every glyph, clipped, offset), the cost of a line" "$OUT/font_test"
-
-$CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/soak_test" tests/soak_test.c -lm
-run "soak: ${SOAK_MIN:-10} minutes of random live use (bounded, no hanging voices, idle after stop)" "$OUT/soak_test" "${SOAK_MIN:-10}"
-
-$CC -o "$OUT/upreset_test" tests/upreset_test.c
-run "user presets (UP_PUT parser, bank round trip, versions)" "$OUT/upreset_test"
-
-$CC -o "$OUT/midi_uart_test" tests/midi_uart_test.c
-run "TRS MIDI parser" "$OUT/midi_uart_test"
-$CC -Ifirmware/hal -o "$OUT/encoder_test" tests/encoder_test.c
-run "knobs: one click = one step (slow, fast, pauses, bounce)" "$OUT/encoder_test"
-HALF=$(sed -n 's/^#define HALF_FRAMES \([0-9]*\).*/\1/p' firmware/src/core.h)
-$CC -DT_CDC=1 -DHALF_FRAMES=$HALF -o "$OUT/uac_test" tests/uac_test.c
-run "USB audio input: descriptors (with CDC), ring and packets" "$OUT/uac_test"
-$CC -DT_CDC=0 -DHALF_FRAMES=$HALF -o "$OUT/uac_test_nocdc" tests/uac_test.c
-run "USB audio input: descriptors (without CDC), ring and packets" "$OUT/uac_test_nocdc"
-uac_in_app() { ${CC%% *} -E -Ibuild/gen -Ifirmware/hal -Ifirmware/src firmware/src/felucca.c 2>/dev/null | grep -q uac_service; }
-run "USB audio input: built into the firmware (FELUCCA_UAC set before usb.c)" uac_in_app
-
-$CC -o "$OUT/ota_test" tests/ota_test.c
-run "M-UPGRADE entry" "$OUT/ota_test" build/felucca.fwsc
-
+# ---- built first, used by several tests
+$CC $SIM -o "$OUT/hostsim" tests/hostsim.c -lm
 head -c 200000 build/felucca.bin > "$OUT/old_app.bin"
 python3 tools/fm1pkg_make.py "$OUT/old_app.bin" build/loader/ota.bin "$OUT/old.fwsc" >/dev/null
-$CC -o "$OUT/ldr_test" tests/ldr_test.c
-run "update loader: other app -> this build" "$OUT/ldr_test" "$OUT/old.fwsc" build/felucca.fwsc
+HALF=$(sed -n 's/^#define HALF_FRAMES \([0-9]*\).*/\1/p' firmware/src/core.h)
+uac() { $CC -DT_CDC=$1 -DHALF_FRAMES=$HALF -o "$OUT/uac_test_$1" tests/uac_test.c && "$OUT/uac_test_$1"; }
+uac_in_app() { ${CC%% *} -E -Ibuild/gen -Ifirmware/hal -Ifirmware/src firmware/src/felucca.c 2>/dev/null | grep -q uac_service; }
+web() { if command -v node >/dev/null 2>&1; then node web/test_web.mjs; else echo "skip web tests (no node)"; fi; }
 
-$CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/hostsim" tests/hostsim.c -lm
-$CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/scale_test" tests/scale_test.c -lm
-run "scales: white-key mapping and note lifecycle" "$OUT/scale_test"
-$CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/arp_test" tests/arp_test.c -lm
-run "arp: the modes on C E G B, accents, HITS of STEPS, ratchets, ROT, SYNC, RHYM, DEJA, SHIFT, recording" "$OUT/arp_test"
-$CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/mutate_test" tests/mutate_test.c -lm
-run "mutate: invariants over thousands of passes, kicks on the beats, a little a pass, exact undo" "$OUT/mutate_test"
-$CC -O2 -w -Ibuild/gen -Ifirmware/src -Ifirmware/hal -o "$OUT/turing_test" tests/turing_test.c -lm
-run "turing: TURN 0 / 100 %, the rates, scale and register, structure, kicks on the beats, recording, undo, locks" "$OUT/turing_test" "$OUT"
-$CC -O2 -w -Ibuild/gen -Ifirmware/src -Ifirmware/hal -o "$OUT/evolve_test" tests/evolve_test.c -lm
-run "evolve: EVOL / BACK on their bars, only playing, muted / recording kept, new starts, undo, the JAM page, invariants" "$OUT/evolve_test" "$OUT"
-$CC -O2 -w -Ibuild/gen -Ifirmware/src -Ifirmware/hal -o "$OUT/prog_test" tests/prog_test.c -lm
-run "prog: a chord a bar, every progression, exact in every scale, arp, drums, OFF, sections, held notes, the JAM page" "$OUT/prog_test" "$OUT"
-$CC -O2 -w -Ibuild/gen -Ifirmware/src -Ifirmware/hal -o "$OUT/dice_test" tests/dice_test.c -lm
-run "dice: every style, thousands of rolls: invariants, signatures, scale and register, turned back exactly, undo, the gesture" "$OUT/dice_test" "$OUT"
-$CC -O2 -w -Ibuild/gen -Ifirmware/src -Ifirmware/hal -o "$OUT/grids_test" tests/grids_test.c -lm
-run "grids: the map as Grids, density, levels, ratchets, chaos, lanes / conditions / locks kept, the MAP page, undo" "$OUT/grids_test" "$OUT"
-$CC -O2 -w -Ibuild/gen -Ifirmware/src -Ifirmware/hal -o "$OUT/cond_test" tests/cond_test.c -lm
-run "step conditions: chance, a:b, FIRST, FILL, AFILL (by the bars), drums and synths, shift / x2 / undo, recording" "$OUT/cond_test"
-$CC -O2 -w -Ibuild/gen -Ifirmware/src -Ifirmware/hal -o "$OUT/plock_test" tests/plock_test.c -lm
-run "parameter locks: played, kept apart, nothing stuck, P-LOCK, follow their steps, saved" "$OUT/plock_test" "$OUT"
-$CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/midi_expr_test" tests/midi_expr_test.c -lm
-run "MIDI expression: bend and its range, mod wheel, sustain, CC120 / 121 / 123, no hanging note, drums, recording" "$OUT/midi_expr_test"
-run "DSP render (ANALOG preset 0)" "$OUT/hostsim" 0 0 1 "$OUT/render.wav"
-mkdir -p build/tracks_demo
-run "TRACKS: 4-track pattern, live recording (lengths, swing), voice budget, engine switch, cost" env TRACKS=build/tracks_demo "$OUT/hostsim" 0 0 1 "$OUT/tracks.wav"
-$CC -w -Ibuild/gen -Ifirmware/src -o "$OUT/project_test" tests/project_test.c -lm
-run "project formats (FUN4 / FUN3 / FUN2 / FUN1 -> FUN5), conditions, locks, capture / apply, autosave" "$OUT/project_test"
-$CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/slicer_test" tests/slicer_test.c -lm
-mkdir -p build/slicer_demo
-run "SLICER: no clicks, timing, sync with the sequencer, STUT, cost, demos" "$OUT/slicer_test" build/slicer_demo
-$CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/color_test" tests/color_test.c -lm
-mkdir -p build/color_demo
-run "COLOR: OFF skipped, PHASR notches, WAH envelope, FOLD harmonics, RING sidebands, bounded, release, locks, cost" "$OUT/color_test" build/color_demo
-$CC -O2 -w -Ibuild/gen -Ifirmware/src -o "$OUT/regress" tests/regress.c -lm
-run "regression: golden renders, health, voices, CPU budget" "$OUT/regress" tests/golden.txt tests/cpu_baseline.txt
+# ---- in parallel
+job "flash storage (A/B, torn writes)" t storage_test ""
+job "application USB recovery and boot-loop guard" t recovery_test ""
+job "song order, timing, repeats and missing scenes" t arranger_test ""
+job "song: four simultaneous tracks, scene transition and stop" t song_audio_test "$SIM" "$OUT/song-demo.wav"
+job "song screen: commands, load (OCT+ twice), display bounds" t song_ui_test "$SIM" "$OUT/song-screen.ppm"
+job "drum lanes, kit audio, metronome, record arm, free take" t studio_drums_test "$SIM" "$OUT/drum-styles.wav"
+job "sequencer 2.0: no drift, ratchets, roll, erase / undo, ghost / hard, chords, mute / solo" t seq2_test "$SIM"
+job "punch-in FX: 16 effects, bounded, dry after release, FX-held keys, LATCH" t punch_test "$SIM" "$OUT/punch-fx.wav"
+job "live UI: pages, layers (punch, steps, erase, roll, key, mix), holds, drums, REC, fuzz" t ui_pages_test "$SIM" "$OUT"
+job "text: both font sizes pixel-exact (every glyph, clipped, offset), the cost of a line" t font_test "-O2 -w -Ibuild/gen"
+job "soak: ${SOAK_MIN:-10} minutes of random live use (bounded, no hanging voices, idle after stop)" t soak_test "$SIM" "${SOAK_MIN:-10}"
+job "user presets (UP_PUT parser, bank round trip, versions)" t upreset_test ""
+job "TRS MIDI parser" t midi_uart_test ""
+job "knobs: one click = one step (slow, fast, pauses, bounce)" t encoder_test "-Ifirmware/hal"
+job "USB audio input: descriptors (with CDC), ring and packets" uac 1
+job "USB audio input: descriptors (without CDC), ring and packets" uac 0
+job "USB audio input: built into the firmware (FELUCCA_UAC set before usb.c)" uac_in_app
+job "M-UPGRADE entry" t ota_test "" build/felucca.fwsc
+job "update loader: other app -> this build" t ldr_test "" "$OUT/old.fwsc" build/felucca.fwsc
+job "scales: white-key mapping and note lifecycle" t scale_test "$SIM"
+job "arp: the modes on C E G B, accents, HITS of STEPS, ratchets, ROT, SYNC, RHYM, DEJA, SHIFT, recording" t arp_test "$SIM"
+job "mutate: invariants over thousands of passes, kicks on the beats, a little a pass, exact undo" t mutate_test "$SIM"
+job "turing: TURN 0 / 100 %, the rates, scale and register, structure, kicks on the beats, recording, undo, locks" t turing_test "$SIM" "$OUT"
+job "evolve: EVOL / BACK on their bars, only playing, muted / recording kept, new starts, undo, the JAM page, invariants" t evolve_test "$SIM" "$OUT"
+job "prog: a chord a bar, every progression, exact in every scale, arp, drums, OFF, sections, held notes, the JAM page" t prog_test "$SIM" "$OUT"
+job "dice: every style, thousands of rolls: invariants, signatures, scale and register, turned back exactly, undo, the gesture" t dice_test "$SIM" "$OUT"
+job "grids: the map as Grids, density, levels, ratchets, chaos, lanes / conditions / locks kept, the MAP page, undo" t grids_test "$SIM" "$OUT"
+job "step conditions: chance, a:b, FIRST, FILL, AFILL (by the bars), drums and synths, shift / x2 / undo, recording" t cond_test "$SIM"
+job "parameter locks: played, kept apart, nothing stuck, P-LOCK, follow their steps, saved" t plock_test "$SIM" "$OUT"
+job "MIDI expression: bend and its range, mod wheel, sustain, CC120 / 121 / 123, no hanging note, drums, recording" t midi_expr_test "$SIM"
+job "DSP render (ANALOG preset 0)" "$OUT/hostsim" 0 0 1 "$OUT/render.wav"
+job "project formats (FUN4 / FUN3 / FUN2 / FUN1 -> FUN5), conditions, locks, capture / apply, autosave" t project_test "-w -Ibuild/gen -Ifirmware/src"
+job "installer CLI (fm1_install.py) against a simulated FM-1" python3 tests/install_test.py
+job "web pages: editor protocol, samples, packages, update protocol" web
 # SLICE (tests/slice_test.c) needs a FELUCCA_SLICE=1 build; the engine is not built by default
+wait
 
+k=1
+while [ $k -le $n ]; do
+    f=$LOG/$(printf %03d $k)
+    echo "== $(cat "$f.name")"
+    cat "$f.out"
+    [ "$(cat "$f.rc")" = 0 ] || fail=1
+    k=$((k + 1))
+done
+
+# ---- one at a time: these time themselves
+$CC $SIM -o "$OUT/drumkit_test" tests/drumkit_test.c -lm
+run "synthesised drum kits: every kit x sound bounded, audible, finite, levels, cost" "$OUT/drumkit_test" "$OUT/drum-kits.wav" "$OUT/drum-kits.txt"
+run "TRACKS: 4-track pattern, live recording (lengths, swing), voice budget, engine switch, cost" env TRACKS=build/tracks_demo "$OUT/hostsim" 0 0 1 "$OUT/tracks.wav"
+$CC $SIM -o "$OUT/slicer_test" tests/slicer_test.c -lm
+run "SLICER: no clicks, timing, sync with the sequencer, STUT, cost, demos" "$OUT/slicer_test" build/slicer_demo
+$CC $SIM -o "$OUT/color_test" tests/color_test.c -lm
+run "COLOR: OFF skipped, PHASR notches, WAH envelope, FOLD harmonics, RING sidebands, bounded, release, locks, cost" "$OUT/color_test" build/color_demo
+$CC $SIM -o "$OUT/regress" tests/regress.c -lm
+run "regression: golden renders, health, voices, CPU budget" "$OUT/regress" tests/golden.txt tests/cpu_baseline.txt
 run "regression: target cost of the render loops" python3 tests/target_budget.py \
     build/felucca.dis tests/target_budget.txt
-
-run "installer CLI (fm1_install.py) against a simulated FM-1" python3 tests/install_test.py
-
-if command -v node >/dev/null 2>&1; then
-    run "web pages: editor protocol, samples, packages, update protocol" node web/test_web.mjs
-else
-    echo "== skip web tests (no node)"
-fi
 
 [ $fail -eq 0 ] && echo "ALL HOST TESTS PASSED" || { echo "HOST TESTS FAILED"; exit 1; }
