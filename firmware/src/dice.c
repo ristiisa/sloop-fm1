@@ -25,7 +25,8 @@ static struct {
 } dice;
 static step_t dice_was[NSTEP] __attribute__((section(".pool")));   /* the pattern before the first roll */
 static uint8_t dice_wcond[NSTEP] __attribute__((section(".pool")));
-static plk_t dice_wlk[PLK_MAX] __attribute__((section(".pool")));
+static int8_t dice_wmicro[NSTEP] __attribute__((section(".pool")));   /* .. its nudges and locks */
+static plock_t dice_wlk[NLOCK] __attribute__((section(".pool")));
 
 /* DS_KIT: the style of the drum kit (by its name; any other: RANDOM) */
 static const struct { const char *kit; uint8_t style; } DICE_KIT[] = {
@@ -581,20 +582,15 @@ static uint32_t dice_depth(const track_t *t)     /* the rolls there are to turn 
 }
 static void dice_make(track_t *t, uint32_t style, uint32_t seed)
 {
-    uint32_t len = trk_len(t), i, k = trk_index(t), gone = 0;
+    uint32_t len = trk_len(t), i;
     dice_rs = (seed ^ seed >> 16) * 0x85EBCA77u;  /* (mixed: the streams of two rolls never overlap) */
     dice_rs = (dice_rs ^ dice_rs >> 13) * 0xC2B2AE3Du;
     dice_rs = dice_rs ? dice_rs : 0x9E3779B9u;
     t->rh_n = 0;                                  /* (a recorded note held: it ties no further) */
-    for (i = 0; i < len; i++)
+    for (i = 0; i < len; i++) {                   /* (the conditions, nudges and locks of the steps within LEN go) */
         t->cond[i] = CN_ALWAYS;
-    for (i = 0; i < PLK_MAX; i++)                 /* (the locks of the steps within LEN go) */
-        if (plk[i].id && plk[i].ts >> 6 == k && (plk[i].ts & 63u) < len) {
-            plk[i].id = 0;
-            gone = 1;
-        }
-    if (gone)
-        plk_gen++;
+        lock_strip(t, i);
+    }
     if (is_drum(t))
         dice_drums(t, style, len);
     else if (style == DS_ACID)
@@ -610,7 +606,8 @@ static uint32_t dice_roll(track_t *t, uint32_t style, int bass)
     if (!dice_depth(t)) {                         /* the first roll: the pattern there is, kept */
         memcpy(dice_was, t->step, sizeof dice_was);
         memcpy(dice_wcond, t->cond, sizeof dice_wcond);
-        plk_save(t, dice_wlk);
+        memcpy(dice_wmicro, t->micro, sizeof dice_wmicro);
+        memcpy(dice_wlk, t->lock, sizeof dice_wlk);
         dice.n = 0;
         dice.trk = (uint8_t)trk_index(t);
         if (!is_drum(t))
@@ -644,7 +641,8 @@ static int dice_back(track_t *t)                  /* the roll before (the first:
     } else {
         memcpy(t->step, dice_was, sizeof dice_was);
         memcpy(t->cond, dice_wcond, sizeof dice_wcond);
-        plk_restore(t, dice_wlk);
+        memcpy(t->micro, dice_wmicro, sizeof dice_wmicro);
+        memcpy(t->lock, dice_wlk, sizeof dice_wlk);
     }
     dice.sum = pattern_sum(t);
     return 1;

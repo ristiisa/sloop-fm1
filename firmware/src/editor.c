@@ -4,7 +4,10 @@
  * v3 = four tracks: the v1 / v2 commands act on the selected track, cmds 27-30 reach any track;
  * v4 = TRACK_PARAM (31) and the TRACK_CHANGED push (32), enabled by WATCH bit 1;
  * v5 = SLOOP 2.0: INFO ends with the protocol version (5), steps carry level / ratchet bytes,
- * DRUM_STEP (33) reads / writes the drum track's 16 lanes, TRACK ends with the solo mask).
+ * DRUM_STEP (33) reads / writes the drum track's 16 lanes, TRACK ends with the solo mask;
+ * v6 = SLOOP 2.3: backup / restore (34-36); v7 = SLOOP 2.4: the steps' nudges and parameter locks (37-40);
+ * v8 = SLOOP 2.4: the steps' fill conditions (41-42); v9 = SLOOP 2.4: the FM6 engine's patches (68-71,
+ * editor_fm6.c: Felucca 1.0's numbers) and the patch bank as backup object 8).
  *   F0 7D 46 4C cmd args.. F7     (7D = non-commercial ID, "FL")
  * Values are 14 bit, two 7-bit bytes LSB first, offset by 8192 (so -8192..8191).
  * Every request gets a reply with the same cmd; 23/24/26 are also pushed
@@ -20,7 +23,11 @@ enum { ED_INFO = 1, ED_GET, ED_SET, ED_DUMP, ED_DESC, ED_STEP_GET, ED_STEP_SET, 
        ED_TRACK, ED_TRACK_MIX, ED_TRACK_DUMP, ED_TRACK_STEP,                    /* v3: tracks */
        ED_TRACK_PARAM, ED_TRACK_CHANGED,                                        /* v4: any track's parameters */
        ED_DRUM_STEP,                                                            /* v5: the 16 drum lanes */
-       ED_BK_LIST, ED_BK_GET, ED_BK_PUT };                                      /* v6: backup / restore */
+       ED_BK_LIST, ED_BK_GET, ED_BK_PUT,                                        /* v6: backup / restore */
+       ED_LOCK_GET, ED_LOCK_SET, ED_MICRO_GET, ED_MICRO_SET,                    /* v7: parameter locks, nudges */
+       ED_FILL_GET, ED_FILL_SET,                                                /* v8: fill conditions */
+       ED_FM6_GET = 68, ED_FM6_PUT, ED_FM6_LIST, ED_FM6_ERASE };                /* v9: FM6 patches (Felucca's numbers) */
+#define ED_PROTO 9u                                   /* the protocol version INFO ends with */
 
 static uint8_t ed_out[600];
 static uint32_t ed_n;
@@ -59,7 +66,7 @@ static void ed_send(void)
 }
 static int32_t ed_rv(const uint8_t *p) { return (int32_t)(p[0] | p[1] << 7) - 8192; }
 
-/* ---- user sample slots (eng_sample.c): flash SMP_USER_BASE + k * SMP_USER_SIZE ----
+/* ---- user sample slots (eng_sample.c): flash SMP_USER_OFF(k) (USR1..3 at 0xA0000.., USR4 at 0xE7000) ----
  * BEGIN erases the header sector (the slot is invalid from then on), WRITE fills the data
  * (offset >= 512, erasing each further sector when the write reaches its start), END sends
  * the header: the device checks the data CRC and writes the header last. */
@@ -74,9 +81,22 @@ static uint32_t ed_unpack7(const uint8_t *a, uint32_t na, uint8_t *out, uint32_t
     }
     return n;
 }
+static void ed_pack7(const uint8_t *p, uint32_t n)      /* pack7: a top-bits byte, then up to 7 bytes */
+{
+    while (n) {
+        uint32_t k = n > 7u ? 7u : n, m = 0, i;
+        for (i = 0; i < k; i++)
+            m |= (uint32_t)(p[i] >> 7) << i;
+        ed_b(m);
+        for (i = 0; i < k; i++)
+            ed_b(p[i] & 127u);
+        p += k;
+        n -= k;
+    }
+}
 static uint8_t ed_smp_buf[512] __attribute__((aligned(4)));
 static uint8_t ed_smp_open[SMP_USER_SLOTS];        /* SMP_BEGIN done, END not yet: WRITE / END may act */
-static uint32_t ed_smp_slot(uint32_t k) { return SMP_USER_BASE + k * SMP_USER_SIZE; }
+static uint32_t ed_smp_slot(uint32_t k) { return SMP_USER_OFF(k); }
 static void ed_smp_inval(uint32_t k)
 {
     fm1_irq_off();
@@ -149,12 +169,17 @@ static struct {
 } ed_w;
 
 static int16_t *ed_val(uint32_t i) { return i < P_COUNT ? &TSEL->p[i] : &song.g[i - P_COUNT]; }
-static uint32_t ed_step_sig(const step_t *s)              /* all 10 bytes (a drum step's lanes too) */
+static uint32_t ed_step_sig(const track_t *t, uint32_t i)   /* all 10 bytes (a drum step's lanes too), v7: + its nudge and locks, v8: + its condition */
 {
-    const uint8_t *b = (const uint8_t *)s;
-    uint32_t i, h = 0x811C9DC5u;
-    for (i = 0; i < sizeof *s; i++)
-        h = (h ^ b[i]) * 16777619u;
+    const uint8_t *b = (const uint8_t *)&t->step[i % NSTEP];
+    uint32_t k, h = 0x811C9DC5u;
+    for (k = 0; k < sizeof t->step[0]; k++)
+        h = (h ^ b[k]) * 16777619u;
+    h = (h ^ (uint8_t)t->micro[i % NSTEP]) * 16777619u;
+    h = (h ^ (t->cond[i % NSTEP] + 1u)) * 16777619u;     /* v8: its condition (SLOOP 2.5: any) */
+    for (k = 0; k < NLOCK; k++)
+        if (t->lock[k].step == i)
+            h = (h ^ (uint32_t)(t->lock[k].param | (uint16_t)t->lock[k].val << 8)) * 16777619u;
     return h;
 }
 /* the drum track's step as a v1..v4 step (old editors): its first 4 lanes as GM notes, ACC when one is hard */
@@ -222,7 +247,7 @@ static void ed_step_in(track_t *t, uint32_t i, const uint8_t *a, uint32_t na)
     if (is_drum(t)) {
         ed_dstep_from_old(&t->dstep[i], a);
         if (!dstep_mask(&t->dstep[i]))
-            plk_clear_step(t, i);                        /* (an empty step: its locks go with it) */
+            lock_strip(t, i);                            /* (an empty step: its locks and nudge go with it) */
         return;
     }
     {
@@ -240,7 +265,7 @@ static void ed_step_in(track_t *t, uint32_t i, const uint8_t *a, uint32_t na)
             st->lvl = st->rat = 0;
         }
         if (!step_on(st))
-            plk_clear_step(t, i);
+            lock_strip(t, i);
     }
 }
 static void ed_shadow(void)                              /* the editor is in sync */
@@ -249,7 +274,7 @@ static void ed_shadow(void)                              /* the editor is in syn
     for (i = 0; i < ED_NV; i++)
         ed_w.v[i] = *ed_val(i);
     for (i = 0; i < NSTEP; i++)
-        ed_w.st[i] = ed_step_sig(&TSEL->step[i]);
+        ed_w.st[i] = ed_step_sig(TSEL, i);
     for (i = 0; i < ED_NT; i++)
         ed_w.tv[i] = trk[i / 3u].p[ED_TIDS[i % 3u]];
     ed_w.eng = (uint8_t)ed_eng(TSEL);
@@ -292,7 +317,7 @@ static void ed_sync(void)                                /* main loop */
         return;
     }
     for (i = 0; i < NSTEP && n < ED_PUSH_MAX; i++) {
-        uint32_t h = ed_step_sig(&TSEL->step[i]);
+        uint32_t h = ed_step_sig(TSEL, i);
         if (h == ed_w.st[i])
             continue;
         if (!ed_room())
@@ -365,7 +390,9 @@ static const param_desc_t *ed_desc(uint32_t scope, uint32_t id, int16_t **vp)
 
 /* ---- v6: backup / restore (web/EDITOR_PROTOCOL.md). Objects: 0 the working project, 1 the settings
  * (colours, calibration, the song order, the lights, SYNC), 2..5 the projects A..D, 6..7 the user preset
- * banks, 32..34 the user sample slots USR1..3 (read only here: restored with SMP_BEGIN / WRITE / END).
+ * banks, 8 the FM6 patch bank (v9), 9 / 10..13 the extensions of the working project / of A..D (SLOOP 2.5:
+ * project.c PX_KEYED; restored after their projects), 32..34 the user sample slots USR1..3 (read only here:
+ * restored with SMP_BEGIN / WRITE / END).
  * LIST takes a snapshot of the working project and the settings; GET reads 1..256 bytes of an object.
  * PUT stages one object in RAM (begin: id, length, CRC-32; data; commit), checks it as a load would,
  * then writes it through the usual A/B commit: a cut-off restore never leaves half an object. */
@@ -374,6 +401,7 @@ static const param_desc_t *ed_desc(uint32_t scope, uint32_t id, int16_t **vp)
 _Static_assert(sizeof proj_tmp >= sizeof(project_t) && sizeof proj_tmp >= sizeof(up_bank_t) &&
                sizeof proj_tmp >= sizeof(persist_t), "backup staging");
 static persist_t ed_bk_set;                             /* LIST's snapshot of the settings */
+static uint8_t ed_bk_x[2][PX_KEYED];                    /* .. of the working project's extension; a section's */
 static uint8_t ed_bk_valid, ed_bk_put, ed_bk_id;
 static uint32_t ed_bk_len, ed_bk_crc, ed_bk_pos, ed_bk_ms;
 static void ed_bk_u32(uint32_t v) { uint32_t i; for (i = 0; i < 5u; i++) ed_b((v >> (7u * i)) & 127u); }
@@ -381,19 +409,7 @@ static uint32_t ed_bk_r32(const uint8_t *a)
 {
     return (uint32_t)a[0] | (uint32_t)a[1] << 7 | (uint32_t)a[2] << 14 | (uint32_t)a[3] << 21 | (uint32_t)a[4] << 28;
 }
-static void ed_bk_pack(const uint8_t *p, uint32_t n)    /* pack7: a top-bits byte, then up to 7 bytes */
-{
-    while (n) {
-        uint32_t k = n > 7u ? 7u : n, m = 0, i;
-        for (i = 0; i < k; i++)
-            m |= (uint32_t)(p[i] >> 7) << i;
-        ed_b(m);
-        for (i = 0; i < k; i++)
-            ed_b(p[i] & 127u);
-        p += k;
-        n -= k;
-    }
-}
+
 static const uint8_t *ed_bk_obj(uint32_t id, uint32_t *len)   /* 0 = no such object; *len 0 = empty */
 {
     *len = 0;
@@ -415,6 +431,19 @@ static const uint8_t *ed_bk_obj(uint32_t id, uint32_t *len)   /* 0 = no such obj
             *len = sizeof up_bank[0];
         return (const uint8_t *)&up_bank[id - 6u];
     }
+    if (id == 9u) {                                       /* the working project's extension (LIST's snapshot) */
+        *len = ed_bk_x[0][4] ? PX_KEYED : 0u;
+        return ed_bk_x[0];
+    }
+    if (id >= 10u && id <= 13u) {                         /* a section's */
+        *len = project_backup_x(id - 10u, ed_bk_x[1]);
+        return ed_bk_x[1];
+    }
+    if (id == 8u) {                                       /* the FM6 patch bank, in flash (XIP) */
+        if (fm6_bank_cur >= 0)
+            *len = sizeof(fm6_bank_t);
+        return (const uint8_t *)fm6_bank_flash(fm6_bank_cur < 0 ? 0u : (uint32_t)fm6_bank_cur);
+    }
     if (id >= 32u && id < 32u + SMP_USER_SLOTS) {
         const smp_user_hdr_t *h = (const smp_user_hdr_t *)smp_user_xip(id - 32u);
         if (h->magic == SMP_USER_MAGIC && h->version == 1u && h->nz && h->nz <= 16u &&
@@ -424,7 +453,10 @@ static const uint8_t *ed_bk_obj(uint32_t id, uint32_t *len)   /* 0 = no such obj
     }
     return 0;
 }
-static const uint8_t ED_BK_IDS[] = {0, 1, 2, 3, 4, 5, 6, 7, 32, 33, 34};
+static const uint8_t ED_BK_IDS[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 32, 33, 34, 35};   /* 35: USR4 (2.4); 9..13 (2.5) */
+
+/* a flash erase silences the audio for ~50 ms and stalls USB: only while stopped (as the panel) */
+static uint32_t ed_flash_busy(void) { return song.playing || transport_req; }
 
 static uint32_t ed_bk_commit(void)
 {
@@ -436,8 +468,12 @@ static uint32_t ed_bk_commit(void)
         return settings_restore(raw, n);
     if (id <= 5u)
         return project_restore(id == 0u ? 4u : id - 2u, raw, n);
+    if (id >= 9u && id <= 13u)
+        return project_restore_x(id == 9u ? 4u : id - 10u, raw, n);
     if (id == 6u || id == 7u) {                           /* a user preset bank (n 0: empty) */
         const up_bank_t *b = (const up_bank_t *)raw;
+        if (ed_flash_busy())
+            return 3;
         if (n && (n != sizeof *b || b->magic != UP_BANK_MAGIC || b->rsize != sizeof(up_rec_t) || b->nslot != UP_PER_BANK))
             return 2;
         if (!flash_ok || st_save(OBJ_UPRESET0 + id - 6u, raw, n))
@@ -447,6 +483,17 @@ static uint32_t ed_bk_commit(void)
             memcpy(&up_bank[id - 6u], raw, n);
         up_bank_check(id - 6u, (int)n);
         up_gen++;
+        return 0;
+    }
+    if (id == 8u) {                                       /* the FM6 patch bank (n 0: empty) */
+        if (ed_flash_busy())
+            return 3;
+        if (n && (n != sizeof(fm6_bank_t) || !fm6_bank_valid((const fm6_bank_t *)raw)))
+            return 2;
+        if (!flash_ok || st_save(OBJ_FM6BANK, raw, n))
+            return 4;
+        fm6_bank_scan();
+        fm6_bank_changed();
         return 0;
     }
     return 1;
@@ -459,7 +506,9 @@ static int ed_backup(uint32_t cmd, const uint8_t *a, uint32_t na)   /* 1: a back
     if (cmd == ED_BK_LIST) {
         rc = !flash_ok ? 4u : 0u;
         if (!rc) {
-            proj_capture((project_t *)ED_BK_RAW);           /* the working project, as it is now */
+            proj_capture((project_t *)ED_BK_RAW, ed_bk_x[1]);   /* the working project, as it is now */
+            if (!px_keyed((project_t *)ED_BK_RAW, ed_bk_x[1], ed_bk_x[0]))
+                ed_bk_x[0][4] = 0;
             persist_fill(&ed_bk_set);
             ed_bk_valid = 1;
             ed_bk_put = 0;
@@ -486,7 +535,7 @@ static int ed_backup(uint32_t cmd, const uint8_t *a, uint32_t na)   /* 1: a back
         ed_b(rc ? 0u : count & 127u);
         ed_b(rc ? 0u : count >> 7);
         if (!rc)
-            ed_bk_pack(p + off, count);
+            ed_pack7(p + off, count);
         return 1;
     }
     if (cmd == ED_BK_PUT) {                               /* op, id, ... -> op, id, rc */
@@ -494,7 +543,7 @@ static int ed_backup(uint32_t cmd, const uint8_t *a, uint32_t na)   /* 1: a back
         rc = 1;
         if (!flash_ok) {
             rc = 4;
-        } else if (op == 0u && na == 12u && (id <= 7u)) {  /* begin: id, length (5), CRC-32 (5) */
+        } else if (op == 0u && na == 12u && (id <= 13u)) {  /* begin: id, length (5), CRC-32 (5) */
             len = ed_bk_r32(a + 2);
             if (id >= 2u || len) {                        /* (the working project and the settings are never empty) */
                 if (len <= sizeof proj_tmp) {
@@ -548,6 +597,8 @@ static int ed_backup(uint32_t cmd, const uint8_t *a, uint32_t na)   /* no flash:
 }
 #endif
 
+#include "editor_fm6.c"                               /* v9: the FM6 patches (68..71) */
+
 static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0 and F7 */
 {
     uint32_t cmd = f[3], i;
@@ -557,6 +608,10 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
     const param_desc_t *d;
     ed_begin(cmd);
     if (ed_backup(cmd, a, na)) {                           /* v6: backup / restore */
+        ed_send();
+        return;
+    }
+    if (ed_fm6_handle(cmd, a, na)) {                       /* v9: FM6 patches */
         ed_send();
         return;
     }
@@ -571,7 +626,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         for (i = 0; i < NENGINES; i++)
             ed_str(ENGINES[i]->name, 8);
         ed_b(NTRK);                                       /* v3 */
-        ed_b(6);                                          /* v6: the protocol version (backup) */
+        ed_b(ED_PROTO);                                   /* v5..: the protocol version (9: FM6 patches) */
         break;
     case ED_GET:
     case ED_SET:
@@ -625,7 +680,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             fm1_irq_on();
             ui.force = 1;
         }
-        ed_w.st[a[0]] = ed_step_sig(&TSEL->step[a[0]]);
+        ed_w.st[a[0]] = ed_step_sig(TSEL, a[0]);
         ed_b(a[0]);
         ed_step_out(TSEL, a[0]);
         break;
@@ -779,9 +834,8 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         if (!rc) {
             int16_t v[P_COUNT];
             up_values(&r, v);                              /* each value inside its range */
-            for (i = 0; i < P_COUNT; i++)
-                r.p[i] = v[i];
-            rc = up_put(slot, &r) ? 2u : 0u;
+            up_rec_set(&r, v);
+            rc = ed_flash_busy() ? 3u : up_put(slot, &r) ? 2u : 0u;
         }
         ed_b(a[0]);
         ed_b(rc);
@@ -797,8 +851,8 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         if (a[0] < UP_SLOTS && (!n0 || up_name_ok(a + 1, n0))) {   /* "" = automatic name */
             for (i = 0; i < n0; i++)
                 nm[i] = (char)a[1 + i];
-            int r = up_store(a[0], nm);
-            rc = r == 1 ? 1u : r ? 2u : 0u;               /* 1: the drum track is selected */
+            int r = ed_flash_busy() ? -3 : up_store(a[0], nm);
+            rc = r == -3 ? 3u : r == 1 ? 1u : r ? 2u : 0u;   /* 1: the drum track is selected; 3: stop first */
         }
         ed_b(a[0]);
         ed_b(rc);
@@ -814,7 +868,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         if (na < 1u)
             return;
         ed_b(a[0]);
-        ed_b(a[0] >= UP_SLOTS ? 1u : up_put(a[0], 0) ? 2u : 0u);
+        ed_b(a[0] >= UP_SLOTS ? 1u : ed_flash_busy() ? 3u : up_put(a[0], 0) ? 2u : 0u);
         break;
     case ED_WATCH:                                         /* on -> on */
         if (na < 1u)
@@ -889,7 +943,7 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
             ui.force = 1;
         }
         if (a[0] == song.sel)
-            ed_w.st[a[1]] = ed_step_sig(&trk[a[0]].step[a[1]]);
+            ed_w.st[a[1]] = ed_step_sig(&trk[a[0]], a[1]);
         ed_b(a[0]);
         ed_b(a[1]);
         ed_step_out(&trk[a[0]], a[1]);
@@ -912,12 +966,12 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
                     dstep_set(d, i, (lv >> (2u * i)) & 3u, (rt >> (2u * i)) & 3u);
             if (!on) {
                 TDRUM->cond[a[0]] = CN_ALWAYS;
-                plk_clear_step(TDRUM, a[0]);
+                lock_strip(TDRUM, a[0]);
             }
             fm1_irq_on();
             ui.force = 1;
             if (song.sel == TRK_DRUM)
-                ed_w.st[a[0]] = ed_step_sig(&TDRUM->step[a[0]]);
+                ed_w.st[a[0]] = ed_step_sig(TDRUM, a[0]);
         }
         on = dstep_mask(d);
         lv = (uint32_t)d->lvl[0] | (uint32_t)d->lvl[1] << 8 | (uint32_t)d->lvl[2] << 16 | (uint32_t)d->lvl[3] << 24;
@@ -947,6 +1001,110 @@ static void ed_handle(const uint8_t *f, uint32_t n)   /* f: the bytes between F0
         ed_b(a[0]);
         ed_b(a[1]);
         ed_v(t->p[a[1]]);
+        break;
+    }
+    /* v7 (SLOOP 2.4): the parameter locks and nudges of a track (core.h plock_t / micro, seq.c lock_step) */
+    case ED_LOCK_GET: {                                    /* track -> track, n, n x (step, param, v14) */
+        const track_t *t;
+        uint32_t n = 0;
+        if (na < 1u || a[0] >= NTRK)
+            return;
+        t = &trk[a[0]];
+        for (i = 0; i < NLOCK; i++)
+            n += t->lock[i].step < NSTEP;
+        ed_b(a[0]);
+        ed_b(n);
+        for (i = 0; i < NLOCK; i++)
+            if (t->lock[i].step < NSTEP) {
+                ed_b(t->lock[i].step);
+                ed_b(t->lock[i].param);
+                ed_v(t->lock[i].val);
+            }
+        break;
+    }
+    case ED_LOCK_SET: {                                    /* track, step, param [, v14] (no value: delete)
+                                                            * -> track, step, param, rc, has, v14 */
+        track_t *t;
+        uint32_t rc = 0, has;
+        int k;
+        if (na < 3u || a[0] >= NTRK)
+            return;
+        t = &trk[a[0]];
+        if (a[1] >= NSTEP || a[2] >= P_COUNT)
+            rc = 1;
+        else if (!p_lockable(a[2]))
+            rc = 2;
+        else {
+            fm1_irq_off();
+            if (na >= 5u)
+                rc = lock_set(t, a[1], a[2], ed_rv(a + 3)) ? 0u : 3u;   /* 3: no free slot */
+            else
+                lock_del(t, a[1], a[2]);
+            fm1_irq_on();
+            ui.force = 1;
+            if (a[0] == song.sel)
+                ed_w.st[a[1]] = ed_step_sig(t, a[1]);     /* the editor's own change: no push */
+        }
+        k = rc == 1u ? -1 : lock_find(t, a[1], a[2], 0);
+        has = k >= 0;
+        ed_b(a[0]);
+        ed_b(a[1]);
+        ed_b(a[2]);
+        ed_b(rc);
+        ed_b(has);
+        ed_v(has ? t->lock[k].val : 0);
+        break;
+    }
+    case ED_MICRO_GET:                                     /* track -> track, NSTEP x (nudge + 64) */
+        if (na < 1u || a[0] >= NTRK)
+            return;
+        ed_b(a[0]);
+        for (i = 0; i < NSTEP; i++)
+            ed_b((uint32_t)(trk[a[0]].micro[i] + 64));
+        break;
+    case ED_MICRO_SET: {                                   /* track, step, nudge + 64 -> track, step, nudge + 64 (clamped) */
+        track_t *t;
+        if (na < 3u || a[0] >= NTRK || a[1] >= NSTEP)
+            return;
+        t = &trk[a[0]];
+        fm1_irq_off();
+        t->micro[a[1]] = (int8_t)clamp((int32_t)a[2] - 64, MICRO_MIN, MICRO_MAX);
+        fm1_irq_on();
+        ui.force = 1;
+        if (a[0] == song.sel)
+            ed_w.st[a[1]] = ed_step_sig(t, a[1]);
+        ed_b(a[0]);
+        ed_b(a[1]);
+        ed_b((uint32_t)(t->micro[a[1]] + 64));
+        break;
+    }
+    /* v8 (SLOOP 2.4): the steps' fill conditions (core.h FC_*, seq.c step_fill): 2 bits a step, as SLOOP 2.4 stores
+     * them (SLOOP 2.5: FILL and !FILL of the step conditions; the others read as normal and stay when set normal) */
+    case ED_FILL_GET: {                                    /* track -> track, pack7 of the NSTEP / 4 bytes */
+        uint8_t f[NSTEP / 4u];
+        if (na < 1u || a[0] >= NTRK)
+            return;
+        memset(f, 0, sizeof f);
+        for (i = 0; i < NSTEP; i++)
+            f[i / 4u] |= (uint8_t)(step_fill(&trk[a[0]], i) << (2u * (i % 4u)));
+        ed_b(a[0]);
+        ed_pack7(f, NSTEP / 4u);
+        break;
+    }
+    case ED_FILL_SET: {                                    /* track, step, cond -> track, step, cond (3 -> 0) */
+        track_t *t;
+        if (na < 3u || a[0] >= NTRK || a[1] >= NSTEP)
+            return;
+        t = &trk[a[0]];
+        fm1_irq_off();
+        step_fill_set(t, a[1], a[2] % 3u);
+        fm1_irq_on();
+        ui.force = 1;
+        if (a[0] == song.sel)
+            ed_w.st[a[1]] = ed_step_sig(t, a[1]);
+        ed_b(a[0]);
+        ed_b(a[1]);
+        ed_b(step_fill(t, a[1]));
         break;
     }
     default:

@@ -25,12 +25,13 @@ static void ck(int ok, const char *what)
     bad += !ok;
 }
 
-typedef struct { dstep_t st[NSTEP]; uint8_t cond[NSTEP]; plk_t lk[PLK_MAX]; } snap_t;
+typedef struct { dstep_t st[NSTEP]; uint8_t cond[NSTEP]; int8_t micro[NSTEP]; plock_t lk[NLOCK]; } snap_t;
 static void snap(const track_t *t, snap_t *s)
 {
     memcpy(s->st, t->dstep, sizeof s->st);
     memcpy(s->cond, t->cond, sizeof s->cond);
-    plk_save(t, s->lk);
+    memcpy(s->micro, t->micro, sizeof s->micro);
+    memcpy(s->lk, t->lock, sizeof s->lk);
 }
 static int same(const track_t *t, const snap_t *s)
 {
@@ -66,8 +67,10 @@ static void setup(uint32_t len, uint32_t div)
         if (i % 7u == 3u) dstep_set(&TDRUM->dstep[i], LANE_HAT, LV_GHOST, 2);
         TDRUM->cond[i] = (uint8_t)(i % 3u ? CN_P50 : CN_ALWAYS);
     }
-    for (i = 0; i < 12u; i++)
-        plk_set(TDRUM, i * 5u + 1u, P_SLDEPTH, (int32_t)i * 10);
+    for (i = 0; i < 12u; i++) {
+        lock_set(TDRUM, i * 5u + 1u, P_SLDEPTH, (int32_t)i * 10);
+        TDRUM->micro[i * 5u + 1u] = (int8_t)(i + 1u);
+    }
 }
 /* everything but the kick, snare and hat as before; past LEN all as before; within LEN a step whose
  * kick / snare / hat changed: no condition, no lock, the others theirs */
@@ -85,16 +88,16 @@ static const char *kept_bad(const track_t *t, const snap_t *was)
                 return "another lane (or a step past LEN) changed";
             ch |= d;
         }
-        if (ch && (t->cond[i] || plk_count(t, i)))
-            return "a step rewritten kept its condition or its lock";
+        if (ch && (t->cond[i] || locks_on(t, i) || t->micro[i]))
+            return "a step rewritten kept its condition, its nudge or its lock";
         if (!ch && t->cond[i] != was->cond[i])
             return "a step not rewritten lost its condition";
         if (!ch) {
             uint32_t k, n = 0;
-            for (k = 0; k < PLK_MAX && was->lk[k].id; k++)
-                n += (was->lk[k].ts & 63u) == i;
-            if (n != plk_count(t, i))
-                return "a step not rewritten lost its lock";
+            for (k = 0; k < NLOCK; k++)
+                n += was->lk[k].step == i;
+            if (n != locks_on(t, i) || t->micro[i] != was->micro[i])
+                return "a step not rewritten lost its lock or its nudge";
         }
     }
     return 0;
@@ -274,8 +277,8 @@ int main(int argc, char **argv)
         setup(16, 2);
         knobs(64, 64, 0, 0, 1);
         grids_make(TDRUM);
-        ck(TDRUM->cond[1] == CN_P50 && plk_count(TDRUM, 1) == 1u && dstep_has(&TDRUM->dstep[1], LANE_BELL) &&
-           TDRUM->cond[11] == CN_P50 && plk_count(TDRUM, 11) == 1u && !TDRUM->cond[4] && !TDRUM->cond[10],
+        ck(TDRUM->cond[1] == CN_P50 && locks_on(TDRUM, 1) == 1u && dstep_has(&TDRUM->dstep[1], LANE_BELL) &&
+           TDRUM->cond[11] == CN_P50 && locks_on(TDRUM, 11) == 1u && !TDRUM->cond[4] && !TDRUM->cond[10],
            "DENSITY 0: the steps of the bell or a lock alone keep theirs, a kick's / hat's step loses its condition");
     }
 

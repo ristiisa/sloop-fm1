@@ -799,7 +799,7 @@ int main(void)
         for (k = 0; k < 2; k++) {
             clk_beat = 0;
             clk_pos = k * (u + sw);                     /* the steps' starts: the odd one sw late */
-            grid_at(4, sw, &into, &slen[k]);
+            grid_den(4, sw, &into, &slen[k]);   /* (1/16: 4 a beat) */
             arp_tick(t, 1);
             for (hit[k] = 0; t->arp_rat && hit[k] < u; hit[k] += 1000u)
                 arp_tick(t, 1000);

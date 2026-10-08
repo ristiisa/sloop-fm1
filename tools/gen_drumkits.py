@@ -461,7 +461,8 @@ KITS = [
         RIDE=S(None, 320, src="cym", nlev=90, ndec=2400, filt=("bp", 6500, .35), hpf=3500, click=16),
         TOMLO=S("sine", 110, 3, 30, 6, 400, 106, 1.5, 40, 20, "white", 16, 0, 40, ("lp", 2000, .1)),
         TOMHI=S("sine", 160, 3, 30, 6, 340, 104, 1.5, 40, 20, "white", 16, 0, 40, ("lp", 2500, .1)))),
-    # -- the Peaks models (appended: saved projects keep their kit numbers)
+    # -- the Peaks models (SLOOP 2.5; appended: saved projects keep their kit numbers. drums.c numbers them
+    #    after SLOOP 2.4's user kits: DS_NKITS_V24)
     ("PEAKS", "MODULAR", 0, KPEAKS),
     ("PEAKS FM", "MODULAR FM", 0, KPEAKSFM),
 ]
@@ -481,8 +482,12 @@ def main(path):
             L.append("        {" + ", ".join(str(x) for x in v) + f"}},   /* {lane} */")
         L.append("    }},")
     L.append("};")
-    L.append("#define DS_KIT_NAME_LIST " + ", ".join(f'"{k[0]}"' for k in KITS))
-    L.append("#define DS_KIT_STYLE_LIST " + ", ".join(f'"{k[1]}"' for k in KITS))
+    v24 = [k[0] for k in KITS].index("PEAKS")         # the kits of SLOOP 2.4 (before its user kits USR1..)
+    L.append(f"#define DS_NKITS_V24 {v24}u")
+    L.append("#define DS_KIT_NAME_LIST " + ", ".join(f'"{k[0]}"' for k in KITS[:v24]))
+    L.append("#define DS_KIT_STYLE_LIST " + ", ".join(f'"{k[1]}"' for k in KITS[:v24]))
+    L.append("#define DS_KIT_NAME_LIST_X " + ", ".join(f'"{k[0]}"' for k in KITS[v24:]))
+    L.append("#define DS_KIT_STYLE_LIST_X " + ", ".join(f'"{k[1]}"' for k in KITS[v24:]))
     Path(path).write_text("\n".join(L) + "\n")
     print(f"drum kits: {len(KITS)} synthesised -> {path}")
 

@@ -83,8 +83,6 @@ static void fx_reset(void)
 {
     host_tracks_init();
     memset(col, 0, sizeof col);
-    memset(plk, 0, sizeof plk);
-    plk_gen++;
 }
 
 /* ------------------------------------------------------------ the song --- */
@@ -470,16 +468,16 @@ static void lock_run(int drums, int lock, int32_t *out, uint8_t *stp, uint32_t b
                 trk[k].p[P_LEVEL] = 0;
         }
     if (lock) {
-        plk_set(t, LSTEP(drums), P_COLOR, drums ? CO_FOLD : CO_RING);
-        plk_set(t, LSTEP(drums), P_CAMT, 127);
-        plk_set(t, LSTEP(drums), P_CRATE, 90);
+        lock_set(t, LSTEP(drums), P_COLOR, drums ? CO_FOLD : CO_RING);
+        lock_set(t, LSTEP(drums), P_CAMT, 127);
+        lock_set(t, LSTEP(drums), P_CRATE, 90);
     }
     transport_req = 1;
     for (b = 0; b < blocks; b++) {
         stp[b] = (uint8_t)at_step(t, 0);
         mix_block(out + 2u * CTL * b, CTL);
-        if (t->p[P_COLOR] || t->p[P_CAMT] != 64)
-            stp[b] = 0xFF;                                /* (a lock left in p[]: fails below) */
+        if (t->seq_idx != LSTEP(drums) && (t->p[P_COLOR] || t->p[P_CAMT] != 64))
+            stp[b] = 0xFF;                                /* (a lock left in p[] past its step: fails below) */
     }
     transport_req = 2;
 }
@@ -505,8 +503,10 @@ static int test_locks(void)
     int bad = 0, d;
     char what[200];
     bad += check("lockable: COLOR on the synth and the drum tracks (sound parameters)",
-                 plk_lockable(&trk[0], P_COLOR) && plk_lockable(&trk[0], P_CAMT) && plk_lockable(&trk[0], P_CRATE) &&
-                 plk_lockable(TDRUM, P_COLOR) && plk_lockable(TDRUM, P_CRATE) && !plk_lockable(TDRUM, P_DIST));
+                 p_lockable(P_COLOR) && p_lockable(P_CAMT) && p_lockable(P_CRATE) && lock_set(TDRUM, 9, P_COLOR, 1) &&
+                 lock_set(TDRUM, 9, P_CRATE, 1) && lock_set(&trk[0], 9, P_CAMT, 1));
+    locks_clear(TDRUM);
+    locks_clear(&trk[0]);
     for (d = 0; d < 2; d++) {
         uint32_t k, same_before = 1, n4 = 0, diff4 = 0, kept = 1;
         double e = 0, de = 0;
@@ -531,7 +531,7 @@ static int test_locks(void)
             }
         }
         snprintf(what, sizeof what, "locks, %s: step %u locked to %s: as before until it (%s), different on it (%u of %u blocks, "
-                 "%.0f %% of its energy), p[] kept", d ? "drums" : "synth", LSTEP(d) + 1u, d ? "FOLD" : "RING",
+                 "%.0f %% of its energy), p[] back after it", d ? "drums" : "synth", LSTEP(d) + 1u, d ? "FOLD" : "RING",
                  same_before ? "bit exact" : "NO", diff4, n4, 100 * sqrt(de / (e + 1)));
         bad += check(what, same_before && n4 > 8u && 2u * diff4 >= n4 && de > 0.1 * e && kept);
     }

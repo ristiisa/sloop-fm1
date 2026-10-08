@@ -82,9 +82,11 @@ the command-line installer) and, with Node.js, the web page tests. Run it after 
 
 The regression suite (`tests/regress.c`) renders every engine and preset and compares a
 hash of each render with `tests/golden.txt`; it also checks levels, voices and the CPU
-cost (`tests/cpu_baseline.txt`, `tests/target_budget.txt`). After an intended change of
-the sound, `GOLDEN_UPDATE=1 sh tests/run_tests.sh` rewrites the hashes; `BUDGET_UPDATE=1`
-does the same for the cost files.
+cost (`tests/cpu_baseline.txt`, `tests/target_budget.txt`). The host CPU cost is relative
+to the idle + drums mix, counted by the kernel on macOS and under callgrind on Linux when
+valgrind is installed (exact, about 45 s more); without either it is timed, a rough check.
+After an intended change of the sound, `GOLDEN_UPDATE=1 sh tests/run_tests.sh` rewrites
+the hashes; `BUDGET_UPDATE=1` does the same for the cost files.
 
 ## Install
 

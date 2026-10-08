@@ -8,6 +8,11 @@
  * on load the valid copy with the highest seq wins, so a torn write leaves
  * the previous copy in charge.
  *
+ * SLOOP 2.5: an object may carry a small extra record (up to ST_X_MAX bytes) in the unused rest of the
+ * header's page (offset 32..255), written before the commit record, its length and CRC in the header's
+ * rsv words (hcrc covers them): it commits with the payload, and SLOOP 2.4 (which writes 0xFFFFFFFF
+ * there and reads only the payload) passes it by. project.c keeps its extension record there.
+ *
  * Flash access goes through three hooks (also used by the host test):
  *   st_read(off, dst, n)   st_erase(off)   st_prog(off, src, n)
  */
@@ -15,12 +20,16 @@
 #define ST_SECTOR 4096u
 #define ST_PAYLOAD_OFF 256u
 #define ST_PAYLOAD_MAX (ST_SECTOR - ST_PAYLOAD_OFF)
+#define ST_X_OFF 32u                           /* the extra record: after the header, before the payload */
+#define ST_X_MAX (ST_PAYLOAD_OFF - ST_X_OFF)
+#define ST_X_TAG 0x58000000u                   /* rsv[0]: 'X' << 24 | its length (rsv[1]: its CRC-32) */
 
 /* flash map (FL_DATA 0x97000..0xDFFFF, FL_GLOB 0xFC000..): settings 0xFC000 / 0xFD000, projects
  * 0x97000..0x9EFFF, user sample slots 0xA0000..0xDBFFF (eng_sample.c), user preset banks 0xDC000..0xDFFFF
  * (upreset.c); the working project (autosave, project.c): copy A 0x9F000, copy B 0xFE000 (the two sectors
- * left: A/B needs no two neighbours) */
-enum { OBJ_SETTINGS, OBJ_PROJECT0, OBJ_UPRESET0 = OBJ_PROJECT0 + 4, OBJ_AUTOSAVE = OBJ_UPRESET0 + 2, OBJ_COUNT };
+ * left: A/B needs no two neighbours); the FM6 patch bank (fm6_bank.c, SLOOP 2.4): 0xE5000 / 0xE6000, the first
+ * two sectors of the free 0xE5000..0xFBFFF after the update staging (FL_FM6, fm1_flash.h) */
+enum { OBJ_SETTINGS, OBJ_PROJECT0, OBJ_UPRESET0 = OBJ_PROJECT0 + 4, OBJ_AUTOSAVE = OBJ_UPRESET0 + 2, OBJ_FM6BANK, OBJ_COUNT };
 
 typedef struct {
     uint32_t magic;
@@ -54,6 +63,8 @@ static uint32_t st_sector(uint32_t obj, uint32_t copy)  /* flash offset of copy 
         return 0xFC000u + copy * ST_SECTOR;
     if (obj == OBJ_AUTOSAVE)
         return copy ? 0xFE000u : 0x9F000u;
+    if (obj == OBJ_FM6BANK)
+        return 0xE5000u + copy * ST_SECTOR;
     if (obj >= OBJ_UPRESET0 && obj < OBJ_AUTOSAVE)
         return 0xDC000u + (obj - OBJ_UPRESET0) * 2u * ST_SECTOR + copy * ST_SECTOR;
     return 0x97000u + (obj - OBJ_PROJECT0) * 2u * ST_SECTOR + copy * ST_SECTOR;
@@ -106,34 +117,51 @@ static int st_current(uint32_t obj, st_hdr_t *h)
     return -1;
 }
 
-/* load object into dst (up to max bytes); returns the length, or -1 */
-static int st_load(uint32_t obj, void *dst, uint32_t max)
+/* load object into dst (up to max bytes); returns the length, or -1. x (xmax bytes; 0: not wanted): its
+ * extra record, *xn its length (0: none, or damaged) */
+static int st_load_x(uint32_t obj, void *dst, uint32_t max, void *x, uint32_t xmax, uint32_t *xn)
 {
-    uint32_t i;
+    uint32_t i, n;
+    int c;
     st_hdr_t h;
-    if (st_current(obj, &h) < 0)
+    if (xn)
+        *xn = 0;
+    if ((c = st_current(obj, &h)) < 0)
         return -1;
     if (h.len > max)
         h.len = max;
     for (i = 0; i < h.len; i++)
         ((uint8_t *)dst)[i] = st_buf[i];
+    n = h.rsv[0] & 0xFFFFFFu;
+    if (x && xn && (h.rsv[0] & 0xFF000000u) == ST_X_TAG && n && n <= ST_X_MAX && n <= xmax &&
+        st_read(st_sector(obj, (uint32_t)c) + ST_X_OFF, x, n) == 0 && st_crc32(x, n) == h.rsv[1])
+        *xn = n;
     return (int)h.len;
 }
+static int st_load(uint32_t obj, void *dst, uint32_t max) { return st_load_x(obj, dst, max, 0, 0, 0); }
 
-static int st_save(uint32_t obj, const void *src, uint32_t len)
+/* save object: len bytes of src, and xlen bytes of x as its extra record (xlen 0: none) */
+static int st_save_x(uint32_t obj, const void *src, uint32_t len, const void *x, uint32_t xlen)
 {
     uint32_t seq, base, off;
     int cur, rc;
     st_hdr_t h;
-    if (obj >= OBJ_COUNT || len > ST_PAYLOAD_MAX)
+    if (obj >= OBJ_COUNT || len > ST_PAYLOAD_MAX || xlen > ST_X_MAX || (xlen && !x))
         return -1;
     cur = st_current(obj, &h);
     seq = cur < 0 ? 0u : h.seq;
     base = st_sector(obj, cur == 0 ? 1u : 0u);       /* write the other copy */
-    for (off = 0; off < len; off++)
-        st_buf[off] = ((const uint8_t *)src)[off];    /* the driver wants RAM sources */
     if ((rc = st_erase(base)) != 0)
         return rc;
+    if (xlen) {                                        /* the extra record first, through st_buf */
+        for (off = 0; off < xlen; off++)
+            st_buf[off] = ((const uint8_t *)x)[off];
+        if ((rc = st_prog(base + ST_X_OFF, st_buf, xlen)) != 0)
+            return rc;
+        h.rsv[1] = st_crc32(st_buf, xlen);
+    }
+    for (off = 0; off < len; off++)
+        st_buf[off] = ((const uint8_t *)src)[off];    /* the driver wants RAM sources */
     for (off = 0; off < len; off += 256u) {
         uint32_t n = len - off > 256u ? 256u : len - off;
         if ((rc = st_prog(base + ST_PAYLOAD_OFF + off, st_buf + off, n)) != 0)
@@ -145,7 +173,10 @@ static int st_save(uint32_t obj, const void *src, uint32_t len)
     h.seq = seq + 1u;
     h.len = len;
     h.crc = st_crc32(st_buf, len);
-    h.rsv[0] = h.rsv[1] = 0xFFFFFFFFu;
+    if (xlen)
+        h.rsv[0] = ST_X_TAG | xlen;                    /* (rsv[1]: its CRC, above) */
+    else
+        h.rsv[0] = h.rsv[1] = 0xFFFFFFFFu;
     h.hcrc = st_crc32(&h, sizeof h - 4u);
     if ((rc = st_prog(base, &h, sizeof h)) != 0)       /* the commit record, last */
         return rc;
@@ -154,6 +185,12 @@ static int st_save(uint32_t obj, const void *src, uint32_t len)
         uint32_t c = cur == 0 ? 1u : 0u;
         if (st_head(obj, c, &chk) || memcmp(&chk, &h, sizeof h) || st_body(obj, c, &chk))   /* the whole record */
             return -7;
+        if (xlen) {                                    /* .. and its extra record (its CRC, into st_buf) */
+            uint32_t xc;
+            if (st_load_x(obj, st_buf, 0, st_buf, ST_X_MAX, &xc) < 0 || xc != xlen)
+                return -7;
+        }
     }
     return 0;
 }
+static int st_save(uint32_t obj, const void *src, uint32_t len) { return st_save_x(obj, src, len, 0, 0); }

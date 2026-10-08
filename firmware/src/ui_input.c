@@ -70,6 +70,10 @@ static uint32_t keys_sounding(const track_t *t)
                     m |= 1u << k;
         }
     }
+    if (t == TSEL)                                 /* + the notes just started, a few frames (pads_tick) */
+        for (i = 0; i < 27u; i++)
+            if (key_lit[i])
+                m |= 1u << i;
     return m;
 }
 
@@ -102,9 +106,8 @@ static uint32_t keys_lit(void)
     uint32_t m = 0, i, blink = (fm1_ms / 125u) & 1u;
     track_t *t = TSEL;
     switch (ui.layer) {
-    case LY_FX:                                    /* the effect on; FILL: its black keys (AFILL's bar: all) */
-        return (punch.req >= 0 ? 1u << key_of_white((uint32_t)punch.req) : 0u) |
-               (fill_keys ? fill_keys : fill_on() ? 0x52A52Au : 0u);
+    case LY_FX:                                    /* the effect on */
+        return punch.req >= 0 ? 1u << key_of_white((uint32_t)punch.req) : 0u;
     case LY_STEP: {                                /* the steps that play; the playhead blinks */
         uint32_t len = trk_len(t);
         for (i = 0; i < 16u; i++) {
@@ -123,13 +126,17 @@ static uint32_t keys_lit(void)
         if (lights_notes)                          /* NOTES: the scale goes dim (keys_notes_dim), what sounds lit */
             return (blink ? scale_keys(1) : 0u) | keys_sounding(t) | fm1_in.notes;
         return scale_keys(0) & ~(blink ? 0u : scale_keys(1));
-    case LY_MIX:                                   /* tracks heard: 1..4; soloed: 5..8; tap: the beat */
+    case LY_MIX:                                   /* tracks heard: 1..4; soloed: 5..8; a fill: 9, armed / on: 10; tap: the beat */
         for (i = 0; i < 4u; i++) {
             if (!trk_silent(&trk[i]))
                 m |= 1u << key_of_white(i);
             if ((song.solo >> i) & 1u)
                 m |= 1u << key_of_white(4u + i);
         }
+        if (fill_now)
+            m |= 1u << key_of_white(8);
+        if (fill_arm || fill_bar_on)
+            m |= 1u << key_of_white(9);
         if (play_led())
             m |= 1u << key_of_white(15);
         return m;
@@ -137,6 +144,20 @@ static uint32_t keys_lit(void)
         return (lights_notes ? 0u : erase_lanes(t)) | fm1_in.notes | (lights_notes ? keys_sounding(t) : 0u);
     default:                                       /* playing, ARP roll, SAVE song, every page and the menu */
         break;
+    }
+    if (kb_grid) {                                 /* the DRUMS grid page: the sound's steps of this page */
+        uint32_t len = trk_len(TDRUM), b0 = drum_cursor / 16u * 16u;
+        for (i = 0; i < 16u; i++) {
+            uint32_t idx = b0 + i, on;
+            if (idx >= len)
+                continue;
+            on = dstep_has(&TDRUM->dstep[idx], drum_lane);
+            if (song.playing && idx == TDRUM->seq_idx)
+                on = !on || blink;
+            if (on)
+                m |= 1u << key_of_white(i);
+        }
+        return m | fm1_in.notes;
     }
     m = fm1_in.notes;
     if (is_drum(t) || lights_notes)                /* the drum track: each hit lights its key; NOTES: the synths too */
@@ -174,7 +195,7 @@ static uint32_t keys_guide(void)
     return 1u << key_of_white(0) | 1u << key_of_white(4) | 1u << key_of_white(8) | 1u << key_of_white(12);
 }
 
-/* the keys the backlight lights (menu KEYS): the Cs, or every white key; bit k = key k (0 = F3) */
+/* the keys the backlight lights (menu KEYS): the Cs, every white key, or every key; bit k = key k (0 = F3) */
 static uint32_t lights_keys_mask(void)
 {
     uint32_t k, m = 0;
@@ -182,7 +203,7 @@ static uint32_t lights_keys_mask(void)
         return 0u;
     for (k = 0; k < 27u; k++) {
         uint32_t pc = (53u + k) % 12u;             /* key 0 = F3 (53) */
-        if (lights_keys == KEYS_C ? pc == 0u : ((0xAB5u >> pc) & 1u) != 0u)   /* 0xAB5: C D E F G A B */
+        if (lights_keys == KEYS_ALL || (lights_keys == KEYS_C ? pc == 0u : ((0xAB5u >> pc) & 1u) != 0u))   /* 0xAB5: C D E F G A B */
             m |= 1u << k;
     }
     return m;
@@ -329,7 +350,7 @@ static void project_new(void)
     }
     TDRUM->p[P_E0] = DRUM_DEFAULT_KIT;
     for (i = 0; i < G_COUNT; i++)
-        if (i != G_SLOT && i != G_DRCH && i != G_SYNC)
+        if (i != G_SLOT && i != G_DRCH && i != G_SYNC && i != G_MIDI && i != G_ROUTE)
             song.g[i] = GP[i].def;
     song.solo = 0;
     song.octave = 0;
@@ -388,6 +409,8 @@ static void edit_param(uint32_t slot, int32_t steps)
         return;
     v = clamp(*vp + accel(EN_K1 + slot, steps, d->max - d->min), d->min, d->max);
     *vp = (int16_t)v;
+    if (pg->scope != SC_GLOBAL && p_lockable(id))
+        ui.lock_par = (uint8_t)id;                        /* the SEQ layer's lock parameter: the last one touched */
     if (!v)
         return;
     if (pg->scope == SC_GLOBAL && (id == G_LOAD || id == G_SAVE || id == G_CLRSEQ || id == G_INITSND || id == G_NEWPRJ) &&
@@ -501,20 +524,10 @@ static void layer_tap(uint32_t layer)
 {
     switch (layer) {
     case LY_FX:
-        if (ly_lock == LY_STEP)
-            plk_open(FAM_FX);                             /* (P-LOCK: the SLICER on the drum track) */
-        else
-            open_family(FAM_FX);
+        open_family(FAM_FX);
         break;
     case LY_ERASE:
     case LY_STEP:
-        if (ly_lock == LY_STEP) {                         /* the SEQ lock: EDIT its pages (P-LOCK), SEQ the steps */
-            if (layer == LY_ERASE)
-                plk_open(FAM_EDIT);
-            else if (ui.plk)
-                ui.plk = 0, ui.force = 1;
-            break;
-        }
         if (on_drum_page()) {                             /* DRUMS: GRID -> KIT -> MAP */
             drum_page = (uint8_t)((drum_page + 1u) % 3u);
             ui.force = 1;
@@ -528,6 +541,7 @@ static void layer_tap(uint32_t layer)
             undo_mark(TSEL, (undo_sess += 4u) | 3u);      /* STEP page: EDIT clears the step */
             step_clear(&TSEL->step[ui.cursor]);
             TSEL->cond[ui.cursor] = CN_ALWAYS;
+            lock_strip(TSEL, ui.cursor);                  /* (an empty step: no lock, no nudge) */
             cursor_set(ui.cursor + 1);
             ui_message("STEP CLEARED");
             break;
@@ -560,8 +574,7 @@ static void layer_tap(uint32_t layer)
 
 /* a layer locked open: a layer button held + HOME tapped. The layer stays with the button let go (both
  * hands free for the keys and the knobs); any other button but PLAY, REC and OCT- / OCT+ lets it go
- * (and does only that: its press is eaten). The SEQ lock keeps ENV, LFO, FX and EDIT: they show their
- * pages (P-LOCK), SEQ shows the steps again */
+ * (and does only that: its press is eaten) */
 static uint8_t home_eat;                                  /* HOME pressed to unlock: its tap is eaten */
 static void layer_unlock(void)
 {
@@ -569,9 +582,18 @@ static void layer_unlock(void)
         ly_lock = LY_PLAY;
         ui.force = 1;
     }
-    ui.plk = 0;
 }
 
+/* #39 of Felucca: a layer that showed lets go; KNOB 1..4 belong to no page for LY_QUIET_MS after (the knob still
+ * turning as the button comes up is the layer's, not the page's under it). fm1_ms | 1, 0 = none */
+#define LY_QUIET_MS 250u
+static uint32_t ly_quiet_t;
+static int ly_quiet(void)
+{
+    if (ly_quiet_t && fm1_ms - (ly_quiet_t & ~1u) >= LY_QUIET_MS)
+        ly_quiet_t = 0;
+    return ly_quiet_t != 0;
+}
 /* the layers, once a frame: which one is held (or locked), the taps on release, its keys and knobs.
  * Returns 1 while one is held or locked (the page does not take the knobs then) */
 static int layers_input(uint32_t note_edges, uint32_t *pressed, uint32_t home)
@@ -581,13 +603,6 @@ static int layers_input(uint32_t note_edges, uint32_t *pressed, uint32_t home)
     uint32_t l, now = fm1_ms, held = LY_PLAY, eat = 0;
     if (ly_lock != LY_PLAY) {
         uint32_t keep = 1u << panel.btn[B_PLAY] | 1u << panel.btn[B_REC] | 1u << panel.btn[B_OCTDN] | 1u << panel.btn[B_OCTUP];
-        if (ly_lock == LY_STEP) {                         /* P-LOCK: the sound pages, inside the SEQ lock */
-            uint32_t env = 1u << panel.btn[B_ENV], lfo = 1u << panel.btn[B_LFO];
-            if (*pressed & (env | lfo))
-                plk_open(*pressed & env ? FAM_ENV : FAM_LFO);
-            *pressed &= ~(env | lfo);
-            keep |= ly_bit[LY_FX] | ly_bit[LY_ERASE] | (ui.plk ? ly_bit[LY_STEP] : 0u);
-        }
         eat = *pressed & ~keep;
         if (eat) {
             layer_unlock();
@@ -606,6 +621,8 @@ static int layers_input(uint32_t note_edges, uint32_t *pressed, uint32_t home)
             used[l] = 1;                                  /* a key while held: not a tap */
         if (!d && down[l] && !used[l] && now - t0[l] < TAP_MS && !ui.menu && !ui.confirm)
             layer_tap(l);
+        if (!d && down[l] && l == LY_SONG)
+            chain_release();                              /* SAVE let go: the section taps of the hold (ui_layers.c) */
         down[l] = (uint8_t)d;
         if (d && held == LY_PLAY)
             held = l;
@@ -627,10 +644,15 @@ static int layers_input(uint32_t note_edges, uint32_t *pressed, uint32_t home)
         while (lk_r != lk_w) {                            /* a key let go after its layer: its release only */
             uint32_t e = lk_q[lk_r % LKQ];
             lk_r++;
-            if (!((e >> 7) & 1u))
+            if ((e >> 8) == KB_GRID) {                    /* the DRUMS grid page: a step key */
+                if (((e >> 7) & 1u) && grid_keys_on())
+                    grid_key(e & 31u);
+            } else if (!((e >> 7) & 1u)) {
                 layer_key(e >> 8, e & 31u, 0);
+            }
         }
         if (ui.layer != LY_PLAY) {
+            ly_quiet_t = fm1_ms | 1u;                     /* a layer shown lets go: KNOB 1..4 quiet a while (#39) */
             ui.layer = LY_PLAY;
             ui.step_held = 0;
             ui.force = 1;                                 /* the page comes back */
@@ -666,15 +688,18 @@ static int layers_input(uint32_t note_edges, uint32_t *pressed, uint32_t home)
                 ui_message(undo_swap(1) ? "REDO" : "NOTHING TO REDO");
         }
     }
-    if (held == LY_STEP) {                                /* SEQ + OCT- / OCT+: the page */
+    if (held == LY_STEP) {                                /* SEQ + OCT- / OCT+: the page; a step held: OCT- its nudge, locks and
+                                                           * condition go, OCT+ its next condition (ALWAYS, FILL, !FILL, ..) */
         uint32_t ob = 1u << panel.btn[B_OCTDN], pb = 1u << panel.btn[B_OCTUP];
         static uint32_t prev;
         uint32_t b = fm1_in.buttons & (ob | pb), press = b & ~prev, pages = (trk_len(TSEL) + 15u) / 16u;
         prev = b;
         if (press) {
             used[held] = 1;
-            if (ui.step_held && (press & ob))
-                steps_lock_clear();                       /* step keys held + OCT-: their locks go */
+            if ((press & ob) && ui.step_held)
+                steps_held_clear();
+            else if ((press & pb) && ui.step_held)
+                steps_held_cond(1);
             else
                 ui.step_page = (uint8_t)((ui.step_page + ((press & pb) ? 1u : pages - 1u)) % pages);
         }
@@ -776,8 +801,10 @@ static void ui_input(void)
     int layered;
     turing_arm();                                       /* TURN turned up / down (any way: knob, editor, a load) */
     evolve_tick();                                      /* EVOLVE: a pass / BACK on the bars begun since */
+    enc_hold = 0;                                       /* (panel.c: every knob readable again this pass) */
     if (pressed || notes)
         ui_input_ms = fm1_ms;
+    fm6_poll();                                         /* FM6: PTCH turned -> its patch */
     if (home == BT_HOLD) {                              /* HOME held: open the menu, or leave it */
         if (ui.menu) {
             menu_close();
@@ -790,6 +817,7 @@ static void ui_input(void)
             song.seq_mode = 0;
         }
     }
+    kb_grid = (uint8_t)grid_keys_on();                  /* (seq.c: the keys are the grid's steps) */
     if (ui.menu) {                                      /* HOME / REC taps do nothing here */
         punch.hold = 0;
         if (!ui.home_t0)
@@ -820,6 +848,12 @@ static void ui_input(void)
         if (!(pressed & (1u << panel.btn[B_PLAY])))
             return;
         pressed &= 1u << panel.btn[B_PLAY];             /* PLAY still plays */
+        enc_hold = (1u << NE) - 1u;                     /* #102: the knobs the layer took are not read again this
+                                                         * pass (a detent counted since went to the page too) */
+    } else if (ly_quiet()) {                            /* #39: the turns as a layer lets go are dropped */
+        for (k = 0; k < 4u; k++)
+            panel_enc(EN_K1 + k);
+        enc_hold |= 15u << EN_K1;
     }
     if (rec_wait && !ft_on && !ci_on) {                 /* the REC screen, armed: how it records */
         rec_knobs();                                    /* (tempo and sound still work; the track too: */
@@ -837,8 +871,14 @@ static void ui_input(void)
         return;
     }
 #endif
-    if (home == BT_TAP)                                 /* HOME acts on release: a hold opens the menu */
-        go_home();
+    if (home == BT_TAP) {                               /* HOME acts on release: a hold opens the menu */
+        if (!ui.home && cur_page()->scope == SC_TRK && !vis_on)
+            vis_open();                                 /* HOME on HOME: the visualiser (ui_vis.c) */
+        else {
+            vis_on = 0;                                 /* (HOME again: back to the TRACKS screen) */
+            go_home();
+        }
+    }
     cursor_fix();                                       /* LEN may have changed (knob, editor, load) */
     for (id = 0; id < 14u; id++) {
         if (!((pressed >> id) & 1u))
@@ -891,7 +931,15 @@ static void ui_input(void)
     }
     if ((s = panel_enc(EN_ALGO)) != 0 && !ft_on)     /* ALGORITHM: the selected track, on every page (not in a take) */
         track_select((uint32_t)clamp((int32_t)song.sel + (s > 0 ? 1 : -1), 0, NTRK - 1));
-    if ((s = panel_enc(EN_SELECT)) != 0) {          /* SELECT knob = global tempo */
+    if (vis_shown() && !rec_wait && !ft_on) {           /* the visualiser: SELECT its style; KNOB 1..4 (the TRACKS
+                                                         * screen's, out of sight) do nothing */
+        if ((s = panel_enc(EN_SELECT)) != 0)
+            vis_select(s);
+        for (k = 0; k < 4u; k++)
+            panel_enc(EN_K1 + k);
+    }
+    if ((s = panel_enc(EN_SELECT)) != 0 && (rec_wait || ft_on || !page_walk(s))) {   /* SELECT: the pages of the
+                                                     * family shown, else (and on the REC screen) the tempo */
         song.g[G_BPM] = (int16_t)clamp(song.g[G_BPM] + accel(EN_SELECT, s, 200), GP[G_BPM].min, GP[G_BPM].max);
         ui.bpm_t = 40;                              /* the header's BPM lights up; no message over the header */
     }
@@ -909,6 +957,8 @@ static void ui_input(void)
             int16_t *vp;
             const param_desc_t *d = home_param(k, &vp);
             *vp = (int16_t)clamp(*vp + accel(EN_K1 + k, s, d->max - d->min), d->min, d->max);
+            if (!is_drum(TSEL) && p_lockable(ENGINES[TSEL->eng_req % NENGINES]->macro[k & 3u]))
+                ui.lock_par = ENGINES[TSEL->eng_req % NENGINES]->macro[k & 3u];
         } else {
             edit_param(k, s);
         }

@@ -28,12 +28,13 @@ static void ck(int ok, const char *what)
     bad += !ok;
 }
 
-typedef struct { step_t st[NSTEP]; uint8_t cond[NSTEP]; plk_t lk[PLK_MAX]; } snap_t;
+typedef struct { step_t st[NSTEP]; uint8_t cond[NSTEP]; int8_t micro[NSTEP]; plock_t lk[NLOCK]; } snap_t;
 static void snap(const track_t *t, snap_t *s)
 {
     memcpy(s->st, t->step, sizeof s->st);
     memcpy(s->cond, t->cond, sizeof s->cond);
-    plk_save(t, s->lk);
+    memcpy(s->micro, t->micro, sizeof s->micro);
+    memcpy(s->lk, t->lock, sizeof s->lk);
 }
 static int same(const track_t *t, const snap_t *s)
 {
@@ -41,7 +42,7 @@ static int same(const track_t *t, const snap_t *s)
     snap(t, &now);
     return !memcmp(&now, s, sizeof now);
 }
-/* a pattern to roll over: conditions and locks within LEN and past it */
+/* a pattern to roll over: conditions, nudges and locks within LEN and past it */
 static void setup(track_t *t, uint32_t len)
 {
     t->p[P_SLEN] = (int16_t)len;
@@ -58,8 +59,10 @@ static void setup(track_t *t, uint32_t len)
     }
     t->cond[2] = CN_P50;
     t->cond[63] = CN_FILL;
-    plk_set(t, 2, is_drum(t) ? P_SLDEPTH : P_REV, 90);
-    plk_set(t, 63, is_drum(t) ? P_SLDEPTH : P_REV, 10);
+    lock_set(t, 2, is_drum(t) ? P_SLDEPTH : P_REV, 90);
+    lock_set(t, 63, is_drum(t) ? P_SLDEPTH : P_REV, 10);
+    t->micro[2] = 5;
+    t->micro[63] = -5;
 }
 static const char *past_len(const track_t *t, const snap_t *init)
 {
@@ -67,11 +70,11 @@ static const char *past_len(const track_t *t, const snap_t *init)
     for (i = len; i < NSTEP; i++)
         if (memcmp(&t->step[i], &init->st[i], sizeof init->st[i]) || t->cond[i] != init->cond[i])
             return "a step past LEN changed (or its condition)";
-    if (len < 64u && plk_count(t, 63) != 1u)
-        return "a lock past LEN went";
+    if (len < 64u && (locks_on(t, 63) != 1u || t->micro[63] != -5))
+        return "a lock or a nudge past LEN went";
     for (i = 0; i < len; i++)
-        if (t->cond[i] || plk_count(t, i))
-            return "a condition or a lock left within LEN";
+        if (t->cond[i] || locks_on(t, i) || t->micro[i])
+            return "a condition, a nudge or a lock left within LEN";
     return 0;
 }
 

@@ -8,6 +8,9 @@
 # per-sample loops (BD 81, HH 97, SD 151, FM 74 instructions).
 # SLOOP 2.5: color_track, the COLOR insert (color.c, out of line from mix_part / slicer_drums): its per-sample
 # loops (PHASR 62, WAH 51, FOLD 25, RING 26 instructions; one runs a block) and the scan for silence (4).
+# SLOOP 2.4: FM6 (fm6_op_run, fm6_op_fb: the per-sample operator loops; fm6_render: the voice's output loop)
+# are in FUNCS without a budget yet: the engine was ported on a host without the pi32v2 toolchain; the
+# next ./build.sh + BUDGET_UPDATE=1 adds their lines (until then they print "no budget", not a failure).
 analog_render 638
 digital_render 333
 phase_render 79

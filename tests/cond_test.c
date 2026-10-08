@@ -4,11 +4,12 @@
  *   ALWAYS     every step on every pass (as before the conditions)
  *   chance     12 / 25 / 50 / 75 / 88 %: the share of passes it plays, drums and synths
  *   a:b        on pass a of every b, each track on its own length; FIRST / !FIRST, again after STOP or a section
- *   FILL       FX + a black key held: FILL steps play, !FILL steps do not (and back when let go)
+ *   FILL       GLO + key 9 held (SLOOP 2.4's gesture), or GLO + key 10: the next bar: FILL steps play, !FILL
+ *              steps do not (and back when let go / after the bar)
  *   AFILL      GLO -> JAM: FILL by itself in the last bar (half bar) of every 2..16 bars of the clock from PLAY
  *              or a section, not of the tracks' loops (LEN 3, 5, 12, 16, 32); FILL held adds to it; shown
  *   a step     keeps its chord and ratchets when it plays; plays nothing (no ratchet, no slide held) when not
- *   editing    SEQ + steps held + KNOB 4; EDIT shift, length x2, undo / redo carry them; recording into an
+ *   editing    SEQ + steps held + OCT+ (the next), OCT+ held + KNOB 4; OCT- clears; EDIT shift, length x2, undo / redo carry them; recording into an
  *              empty step, erase, clear: ALWAYS; recording onto a step keeps its condition
  * Exit status: the number of failed checks. */
 #define UI_TEST_MAIN ui_main
@@ -85,6 +86,18 @@ static void reset(void)
         trk[i].p[P_AMODE] = 0;
     }
     count_reset();
+}
+/* GLO + key 9 (its 9th white key) down / up: FILL while held (the UI takes the key: ui_input) */
+static void glo_fill(int down, void (*blk)(void))
+{
+    if (down) {
+        fm1_in.buttons |= ly_bit[LY_MIX];
+        fm1_in.notes |= 1u << key_of_white(8);
+    } else {
+        fm1_in.notes &= ~(1u << key_of_white(8));
+    }
+    blk();
+    ui_input();
 }
 static void play(void)
 {
@@ -250,22 +263,22 @@ static void t_fill(void)
     for (p = 1; p <= 2u; p++)
         ok &= !hits[0][p][0] && !hits[TRK_DRUM][p][0] && hits[TRK_DRUM][p][1] == 1u;
     ck(ok, "FILL not held: FILL steps silent, !FILL steps play");
-    fm1_in.buttons = ly_bit[LY_FX];                  /* FX + F#3 (a black key) held */
-    fm1_in.notes = 1u << 1;
+    glo_fill(1, block);                              /* GLO + key 9 held */
     block();
-    ck(fill_keys == 2u && kb_kind[1] == KS_FILL && (uint32_t)punch.req == req, "FX + a black key: FILL (no punch-in effect)");
+    ck(fill_held && fill_now && kb_kind[key_of_white(8)] == KS_UI && (uint32_t)punch.req == req, "GLO + key 9: FILL (no punch-in effect)");
     p = pass_no[0] + 1u;
     run_passes(0, p + 1u);
     ok = hits[0][p][0] == 1u && hits[0][p + 1u][0] == 1u && hits[TRK_DRUM][p][0] == 1u && !hits[TRK_DRUM][p][1];
     ck(ok, "FILL held: FILL steps play, !FILL steps do not (synth and drums)");
-    fm1_in.buttons = 0;                              /* FX let go first: the key still ends FILL */
+    fm1_in.buttons = 0;                              /* GLO let go first: the key still ends FILL */
     block();
-    ck(fill_keys == 2u, "FX let go, the black key still held: FILL on");
-    fm1_in.notes = 0;
+    ui_input();
+    ck(fill_held, "GLO let go, key 9 still held: FILL on");
+    glo_fill(0, block);
     block();
     p = pass_no[0] + 1u;
     run_passes(0, p);
-    ck(!fill_keys && !hits[0][p][0] && hits[TRK_DRUM][p][1] == 1u, "the black key up: FILL off, as before");
+    ck(!fill_held && !hits[0][p][0] && hits[TRK_DRUM][p][1] == 1u, "key 9 up: FILL off, as before");
 }
 
 static void t_keeps(void)
@@ -386,7 +399,8 @@ static void t_record(void)
     stop();
 }
 
-/* the real gestures: SEQ + steps held + KNOB 4, the dial, the tiles; KNOB 4 alone: LENGTH */
+/* the real gestures: SEQ + steps held + OCT+ (the next condition), OCT+ held + KNOB 4 (any), the dial, the tiles;
+ * KNOB 4 with no OCT+: the nudge (SLOOP 2.4); OCT-: nudge, locks and condition go; KNOB 4 alone: LENGTH */
 static void t_ui(void)
 {
     track_t *t = &trk[0];
@@ -400,20 +414,33 @@ static void t_ui(void)
     frames(10);
     fm1_in.notes = 1u << key_of_white(4) | 1u << key_of_white(6);
     frame();
-    encs[panel.enc[EN_K4]] = 3;
+    press(B_OCTUP);
+    ck(t->cond[4] == CN_FILL && t->cond[6] == CN_FILL, "SEQ + steps 5 and 7 held + OCT+: the first one's next condition on both (FILL)");
+    press(B_OCTUP);
+    ck(t->cond[4] == CN_FILL && t->cond[6] == CN_FILL, "(OCT+ held: no repeat)");
+    encs[panel.enc[EN_K4]] = 6;
     frame();
-    ck(t->cond[4] == CN_P50 && t->cond[6] == CN_P88, "SEQ + steps 5 and 7 held + KNOB 4: each condition 3 on (50 %, 88 %)");
+    ck(t->cond[4] == CN_P50 && t->cond[6] == CN_P50, "OCT+ held + KNOB 4: six on in the order (50 %)");
     ui.force = 1;
     frame();
     ppm("layer-steps-cond");
     encs[panel.enc[EN_K4]] = -40;
     frame();
-    encs[panel.enc[EN_K4]] = 1;
+    encs[panel.enc[EN_K4]] = 2;
     frame();
-    ck(t->cond[4] == CN_P12 && t->cond[6] == CN_P12, "KNOB 4 left to ALWAYS (bounded), one right: 12 %");
+    ck(t->cond[4] == CN_NFILL && t->cond[6] == CN_NFILL && !t->micro[4], "KNOB 4 left to ALWAYS (bounded), two right: !FILL; no nudge");
+    release(B_OCTUP);
+    encs[panel.enc[EN_K4]] = 3;
+    frame();
+    ck(t->micro[4] == 3 && t->micro[6] == 3 && t->cond[4] == CN_NFILL, "KNOB 4 (OCT+ up): the nudge, the condition stays");
+    tap(B_OCTDN);
+    ck(!t->micro[4] && t->cond[4] == CN_ALWAYS && t->cond[6] == CN_ALWAYS && step_on(&t->step[4]),
+       "OCT-: nudge, locks and condition gone, the steps stay");
+    tap(B_OCTUP);
+    ck(t->cond[4] == CN_FILL, "OCT+ again: FILL");
     fm1_in.notes = 0;
     frame();
-    ck(step_on(&t->step[4]) && step_on(&t->step[6]) && t->p[P_SLEN] == 16, "steps let go after KNOB 4: kept, LENGTH untouched");
+    ck(step_on(&t->step[4]) && step_on(&t->step[6]) && t->p[P_SLEN] == 16, "steps let go after the edits: kept, LENGTH untouched");
     encs[panel.enc[EN_K4]] = -1;
     frame();
     ck(t->p[P_SLEN] < 16, "SEQ + KNOB 4, no step held: LENGTH as before");
@@ -429,12 +456,14 @@ static void t_ui(void)
     frames(10);
     fm1_in.notes = 1u << key_of_white(2);
     frame();
-    encs[panel.enc[EN_K4]] = 15;
+    press(B_OCTUP);
+    encs[panel.enc[EN_K4]] = 1;
     frame();
+    release(B_OCTUP);
     fm1_in.notes = 0;
     frame();
     release(B_SEQ);
-    ck(TDRUM->cond[2] == CN_FILL && dstep_has(&TDRUM->dstep[2], 5), "drums: SEQ + step 3 held + KNOB 4: the step's condition (FILL)");
+    ck(TDRUM->cond[2] == CN_NFILL && dstep_has(&TDRUM->dstep[2], 5), "drums: SEQ + step 3 held + OCT+, KNOB 4: the step's condition (!FILL)");
     song.sel = 0;
 }
 
@@ -541,23 +570,17 @@ static void t_afill(void)
     /* FILL held by hand: in bar 2 (not an AFILL bar) and over bar 4 (one): FILL as either says */
     ab_setup(LA, 2);
     ab_until(0, 15);
-    fm1_in.buttons = ly_bit[LY_FX];                  /* FX + a black key, from the last step of bar 1 */
-    fm1_in.notes = 1u << 1;
-    ab_block();
+    glo_fill(1, ab_block);                           /* GLO + key 9, from the last step of bar 1 */
     fm1_in.buttons = 0;
     ab_until(0, 31);
-    fm1_in.notes = 0;
-    ab_block();
+    glo_fill(0, ab_block);
     ab_until(0, 47);
-    fm1_in.buttons = ly_bit[LY_FX];
-    fm1_in.notes = 1u << 3;
-    ab_block();
+    glo_fill(1, ab_block);
     fm1_in.buttons = 0;
     ab_until(0, 63);
-    fm1_in.notes = 0;
-    ab_block();
+    glo_fill(0, ab_block);
     ab_until(0, 9u * 16u);
-    ck(ab_ok(2, 0, 9u * 16u, 16, 32) && !fill_keys, "AFILL 4 and FILL held (bar 2, and over bar 4): FILL plays when either is on");
+    ck(ab_ok(2, 0, 9u * 16u, 16, 32) && !fill_held, "AFILL 4 and FILL held (bar 2, and over bar 4): FILL plays when either is on");
     for (ok = 1, r = 48; r < 64u; r++)               /* (bar 4: held and AFILL, as by either alone) */
         ok &= ab_hits[0][r] == (r % 3u != 1u);
     ck(ok, "FILL held in an AFILL bar: that bar as by either alone (no step twice)");
@@ -574,7 +597,7 @@ static void t_afill(void)
     ck(!fill_on(), "stopped: no AFILL");
 }
 
-/* what shows: the TRACKS header's beat lights in the FX colour (and "fill"), the FX layer's black keys */
+/* what shows: the TRACKS header's beat lights in the FX colour (and "fill"), the GLO layer's key 9 */
 static uint32_t beat_lights_fx(void)
 {
     uint32_t k, n = 0;
@@ -593,7 +616,7 @@ static void t_afill_ui(void)
     transport_req = 1;
     frame();
     n_off = beat_lights_fx();
-    press(B_FX);
+    press(B_GLO);
     frames(12);
     lit_off = keys_lit();
     for (guard = 2000; !fill_on() && guard; guard--)
@@ -602,15 +625,16 @@ static void t_afill_ui(void)
     lit_on = keys_lit();
     ui.force = 1;
     frame();
-    ppm("layer-fx-afill");
-    release(B_FX);
+    ppm("layer-glo-afill");
+    release(B_GLO);
     go_home();
     ui.force = 1;
     frame();
     n_on = beat_lights_fx();
     ppm("page-tracks-afill");
     ck(fill_on() && (clk_beat >> 2) % 4u == 3u, "AFILL 4: FILL on in the 4th bar");
-    ck(lit_off == 0u && lit_on == 0x52A52Au, "the FX layer: the black keys lit in an AFILL bar (as if held), not before");
+    ck(!((lit_off >> key_of_white(8)) & 1u) && ((lit_on >> key_of_white(8)) & 1u),
+       "the GLO layer: key 9 (FILL) lit in an AFILL bar (as if held), not before");
     ck(n_off == 0u && n_on == 3u, "TRACKS header: the beat lights of an AFILL bar in the FX colour");
     while (fill_on() && guard--)
         frame();

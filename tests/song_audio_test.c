@@ -12,20 +12,9 @@ static struct { uint8_t force; } ui;
 static uint8_t sync_reload;
 #include "../firmware/src/arranger_scene.c"
 
-static void capture(uint32_t slot)
+static void capture(uint32_t slot)             /* (proj_capture: with the nudges and locks, every slot free) */
 {
-    project_t *p = &proj_slot[slot];
-    uint32_t i;
-    memset(p, 0, sizeof *p);
-    p->magic = PROJ_MAGIC; p->size = sizeof *p;
-    memcpy(p->g, song.g, sizeof song.g);
-    for (i = 0; i < NTRK; i++) {
-        memcpy(p->t[i].p, trk[i].p, sizeof trk[i].p);
-        memcpy(p->t[i].step, trk[i].step, sizeof trk[i].step);
-        p->t[i].engine = trk[i].eng_req;
-        p->t[i].preset = trk[i].preset;
-    }
-    p->sum = proj_sum(p);
+    proj_capture(&proj_slot[slot], proj_xslot[slot]);
 }
 
 int main(int argc, char **argv)
@@ -107,7 +96,7 @@ int main(int argc, char **argv)
         uint32_t bar = 4u * 60u * FS / (uint32_t)song.g[G_BPM], t, jumped = 0;
         arrangement.entry[1].scene = 1;
         arrangement_enabled = 0;
-        proj_apply(&proj_slot[0], 1);
+        proj_apply(&proj_slot[0], proj_xslot[0], 1);
         live_sec = 0;
         srec = 1;
         transport_req = 1;

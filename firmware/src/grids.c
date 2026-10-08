@@ -200,7 +200,7 @@ static void grids_make(track_t *t)               /* the map into the kick, snare
             fm1_irq_off();
             t->dstep[i] = s;
             t->cond[i] = CN_ALWAYS;
-            plk_clear_step(t, i);
+            lock_strip(t, i);
             fm1_irq_on();
         }
     }

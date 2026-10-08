@@ -210,6 +210,8 @@ int main(int argc, char **argv)
     one_hit(0, 36, &ref_peak, &e);                       /* the sampled kick */
     for (kit = DRUM_SAMPLED; kit < DRUM_KITS; kit++) {
         int32_t kpk = 0;
+        if (!kit_synth(kit))
+            continue;                                     /* (the user kits: tests/userkit_test.c) */
         fprintf(rep, "%-8s %-12s", DRUM_KIT_NAMES[kit], DRUM_KIT_STYLES[kit]);
         for (lane = 0; lane < DS_LANES; lane++) {
             uint32_t b = one_hit(kit, DS_NOTE[lane], &peak, &e);
@@ -250,13 +252,15 @@ int main(int argc, char **argv)
     if (argc > 1) {   /* demo: each kit, one bar: K . H . S . H . K K H . S . H O */
         static const uint8_t P[16][3] = {{36, 42, 0}, {0}, {42, 0}, {0}, {38, 42, 0}, {0}, {42, 0}, {70, 0},
                                          {36, 42, 0}, {36, 0}, {42, 0}, {37, 0}, {38, 39, 0}, {0}, {42, 63, 0}, {46, 0}};
-        uint32_t step = FS * 60u / 120u / 4u, total = (DRUM_KITS - DRUM_SAMPLED) * 16u * step;
+        uint32_t step = FS * 60u / 120u / 4u, total = DS_NKITS * 16u * step;
         FILE *f = fopen(argv[1], "wb");
         int32_t l[CTL], r[CTL], rv[CTL];
         wav_hdr(f, total / CTL * CTL);
         memset(&drums, 0, sizeof drums);
         drums.set = -2;
         for (kit = DRUM_SAMPLED; kit < DRUM_KITS; kit++) {
+            if (!kit_synth(kit))
+                continue;
             TDRUM->p[P_E0] = (int16_t)kit;
             for (j = 0; j < 16u; j++) {
                 uint32_t q, s;
@@ -271,6 +275,6 @@ int main(int argc, char **argv)
         fclose(f);
     }
     printf("drum kits: %u synthesised x %u sounds bounded, audible, finite; levels near the sampled kit PASS\n",
-           DRUM_KITS - DRUM_SAMPLED, DS_LANES);
+           DS_NKITS, DS_LANES);
     return 0;
 }

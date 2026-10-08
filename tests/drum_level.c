@@ -17,7 +17,7 @@ int main(int argc, char **argv)
     host_tracks_init();
     song.g[G_DRLVL] = 100;
     for (kit = DRUM_SAMPLED; kit < DRUM_KITS; kit++)
-        for (ln = 0; ln < 16u; ln++) {
+        for (ln = 0; ln < 16u && kit_synth(kit); ln++) {
             memset(&drums, 0, sizeof drums);
             drums.set = -2;
             TDRUM->p[P_E0] = (int16_t)kit;
@@ -32,6 +32,6 @@ int main(int argc, char **argv)
             }
         }
     fclose(f);
-    printf("%u kits x 16 sounds -> %s\n", DRUM_KITS - DRUM_SAMPLED, argv[1]);
+    printf("%u kits x 16 sounds -> %s\n", DS_NKITS, argv[1]);
     return 0;
 }

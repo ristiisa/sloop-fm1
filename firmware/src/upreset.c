@@ -12,6 +12,10 @@
  * their defaults. So common parameters may only be added just before P_E0
  * (else bump UP_VER).
  *
+ * SLOOP 2.5 stores SLOOP 2.4's layout (np = P_NP_V24: P_LEVEL..P_VLEAD, P_E0..P_E7), and its own
+ * parameters (P_AACC..P_CRATE, P_NX: core.h) a byte each after them, tagged in the last value
+ * (UP_XTAG | P_NX); 2.4 reads the first np and leaves the rest. A record with no tag: their defaults.
+ *
  * With -DUP_HOST (host test) only the part above #ifndef UP_HOST is built;
  * it needs nothing but core.h. */
 #define UP_PER_BANK 16u
@@ -31,7 +35,8 @@ typedef struct {
     up_rec_t r[UP_PER_BANK];
 } up_bank_t;
 _Static_assert(sizeof(up_rec_t) == 192, "user preset record layout");
-_Static_assert(P_COUNT <= UP_PMAX && P_COUNT < 128, "user preset record: P_COUNT");
+#define UP_XTAG 0x5800                           /* p[UP_PMAX - 1]: 'X' << 8 | the bytes packed */
+_Static_assert(P_NP_V24 + (P_NX + 1u) / 2u < UP_PMAX && P_COUNT < 128, "user preset record: P_COUNT");
 static up_bank_t up_bank[UP_SLOTS / UP_PER_BANK];
 
 static up_rec_t *up_rec(uint32_t k) { return &up_bank[k / UP_PER_BANK].r[k % UP_PER_BANK]; }
@@ -55,11 +60,31 @@ static void up_bank_check(uint32_t b, int len)  /* after loading bank b (len byt
 /* the record's values in today's P_* order (mapped by count, see above); def = the defaults */
 static void up_params(const up_rec_t *r, int16_t *out, const int16_t *def)
 {
-    uint32_t i, nc = r->np - 8u;
+    uint32_t i, nc = r->np - 8u, nx = (uint16_t)r->p[UP_PMAX - 1u] & 0xFFu;
     for (i = 0; i < P_E0; i++)
         out[i] = i < nc ? r->p[i] : def[i];
     for (i = 0; i < 8u; i++)
         out[P_E0 + i] = r->p[nc + i];
+    if (r->np == P_NP_V24 && ((uint16_t)r->p[UP_PMAX - 1u] & 0xFF00u) == UP_XTAG)   /* SLOOP 2.5's, packed */
+        for (i = 0; i < P_NX && i < nx; i++)
+            out[P_E0_V24 + i] = (int8_t)((uint16_t)r->p[P_NP_V24 + i / 2u] >> (8u * (i & 1u)));
+}
+/* today's values (P_COUNT) -> the record: SLOOP 2.4's layout, SLOOP 2.5's parameters packed after it */
+static void up_rec_set(up_rec_t *r, const int16_t *v)
+{
+    uint32_t i;
+    r->np = P_NP_V24;
+    memset(r->p, 0, sizeof r->p);
+    for (i = 0; i < P_E0_V24; i++)
+        r->p[i] = v[i];
+    for (i = 0; i < 8u; i++)
+        r->p[P_E0_V24 + i] = v[P_E0 + i];
+    for (i = 0; i < P_NX; i++) {
+        int32_t x = v[P_E0_V24 + i];
+        x = x < -128 ? -128 : x > 127 ? 127 : x;      /* (their ranges fit a byte; the editor's raw values may not) */
+        r->p[P_NP_V24 + i / 2u] = (int16_t)((uint16_t)r->p[P_NP_V24 + i / 2u] | (uint16_t)(uint8_t)x << (8u * (i & 1u)));
+    }
+    r->p[UP_PMAX - 1u] = (int16_t)(UP_XTAG | P_NX);
 }
 
 static int up_name_ok(const uint8_t *s, uint32_t n)   /* 1..12 printable ASCII */
@@ -130,11 +155,14 @@ static int up_parse(const uint8_t *a, uint32_t na, up_rec_t *r, uint32_t *slot)
     r->used = UP_USED;
     r->ver = UP_VER;
     r->engine = a[1];
-    r->np = P_COUNT;
     for (i = 0; i < n; i++)
         r->name[i] = (char)a[2 + i];
-    for (i = 0; i < P_COUNT; i++, k += 2u)
-        r->p[i] = (int16_t)((int32_t)((a[k] & 127u) | (a[k + 1] & 127u) << 7) - 8192);
+    {
+        int16_t v[P_COUNT];
+        for (i = 0; i < P_COUNT; i++, k += 2u)
+            v[i] = (int16_t)((int32_t)((a[k] & 127u) | (a[k + 1] & 127u) << 7) - 8192);
+        up_rec_set(r, v);
+    }
     for (i = 0; i < 16u; i++, k += 2u) {
         r->note[i] = a[k];
         r->flags[i] = a[k + 1];
@@ -214,7 +242,6 @@ static int up_store(uint32_t k, const char *name)
     r.used = UP_USED;
     r.ver = UP_VER;
     r.engine = TSEL->eng_req;
-    r.np = P_COUNT;
     if (name && name[0]) {
         for (i = 0; i < 12u && name[i]; i++)
             r.name[i] = name[i];
@@ -227,8 +254,7 @@ static int up_store(uint32_t k, const char *name)
         for (i = 0; i < 12u && b[i]; i++)
             r.name[i] = b[i];
     }
-    for (i = 0; i < P_COUNT; i++)
-        r.p[i] = TSEL->p[i];
+    up_rec_set(&r, TSEL->p);
     up_pat_from(&r, TSEL->step);
     return up_put(k, &r);
 }
@@ -257,6 +283,7 @@ static int up_load(uint32_t k)
         t->p[i] = v[i];
     t->preset = 0;
     fm1_irq_on();
+    fm6_track_loaded(t);                                /* FM6: a user preset holds the PTCH and the macros */
     t->user = (uint8_t)(k + 1u);
     sync_reload = 1;
     ui.force = 1;

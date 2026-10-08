@@ -46,7 +46,7 @@ static void draw_head(void)
     uint32_t sig = (uint32_t)song.playing * 3u + rec * 5u + (uint32_t)(song.octave + 8) * 11u + song.sel * 13131u +
                    (ui.msg_t ? str_hash(7u, ui.msg) : 0u) + (uint32_t)song.g[G_BPM] * 101u + (ui.bpm_t != 0) * 31u +
                    (uint32_t)batt_shown() * 7777u + (usb.config && !usb.suspended) * 99991u +
-                   (plk_view() ? plk_held() * 131u + 7919u : 0u) + (uint32_t)(px + 1) * 10007u;
+                   (uint32_t)(px + 1) * 10007u;
     if (!ui.force && sig == ui.head_sig)
         return;
     ui.head_sig = sig;
@@ -71,23 +71,15 @@ static void draw_head(void)
         x += 14;
     }
     x = cv_text(x, 1, &FONT_S, b, ui.bpm_t ? C_WHITE : C_HI);   /* white while SELECT turns it */
-    if (plk_view()) {                                 /* P-LOCK (the keys are steps: no octave), the step held */
-        str_cpy(b, "P-LOCK", sizeof b);
-        if (plk_held() < NSTEP) {
-            str_cpy(b, "LOCK ", sizeof b);
-            fmt_int(b + 5, (int32_t)plk_held() + 1);
-        }
-        cv_rect(x + 10, 1, text_w(&FONT_S, b) + 6, 17, TE_RED);
-        cv_text(x + 13, 1, &FONT_S, b, C_BLACK);
-    } else if (song.octave) {
+    if (song.octave) {
         str_cpy(b, song.octave > 0 ? "+" : "", 4);
         fmt_int(b + str_len(b), song.octave);
         cv_text(x + 12, 1, &FONT_S, "OCT", C_GRAY);
         cv_text(x + 40, 1, &FONT_S, b, C_HI);
     }
     if (px >= 0) {                                    /* a punch-in on: a disc in the FX layer's colour; its name where
-                                                       * the octave / P-LOCK would be */
-        int busy = song.octave || plk_view();
+                                                       * the octave would be */
+        int busy = song.octave != 0;
         te_disc(busy ? 147 : x + 14, 9, 4, TE_DRUM);
         if (!busy)
             cv_text(x + 22, 1, &FONT_S, PUNCH_SHORT[(uint32_t)px % PUNCH_NFX], TE_DRUM);
@@ -159,6 +151,12 @@ static void draw_column(uint32_t c, const char *label, const char *val, const ch
         key[n + 1] = (char)(' ' + (ratio < 0 ? 0 : 1 + ratio / 20));
         key[n + 2] = (char)(icon == ICON_NONE ? '~' : '!' + icon % 90u);   /* same label, other icon */
         key[n + 3] = 0;
+    }
+    if (c < 4u) {                                       /* (the big values: their own fit) */
+        str_cpy(ui.big_l[c], l, 8);
+        fit(ui.big_v[c], val, &FONT_L, 112 - (unit[0] ? 4 : 0));
+        str_cpy(ui.big_u[c], unit, 8);
+        ui.big_c[c] = vc;
     }
     if (c == ui.hot_col) {
         str_cpy(ui.focus_l, l, 8);
@@ -366,6 +364,8 @@ static uint32_t str_hash(uint32_t h, const char *s)
     return h;
 }
 
+/* a page drawn with its values large (graph_big) */
+static int big_page(const page_t *pg) { return pg->graph == GR_NONE && pg->scope != SC_SONG && pg->scope != SC_DRUM; }
 static uint32_t graph_signature(void)
 {
     const page_t *pg = cur_page();
@@ -373,6 +373,9 @@ static uint32_t graph_signature(void)
     uint32_t h = 2166136261u, i;
     if (ui.hot_t && settings.zoom)
         h = str_hash(str_hash(str_hash(h ^ 0x5555u, ui.focus_v), ui.focus_l), ui.focus_u);
+    if (!ui.home && big_page(pg))                    /* the big values: as the columns show them */
+        for (i = 0; i < 4u; i++)
+            h = str_hash(str_hash(str_hash(h ^ ui.big_c[i] * 31u, ui.big_v[i]), ui.big_l[i]), ui.big_u[i]);
     if (ui.home)
         return h ^ (ui.frame / 2u);                  /* scope: redraw every other frame */
     h ^= (uint32_t)pg->graph * 131u + TSEL->eng_req + song.sel * 7777u;
@@ -381,7 +384,7 @@ static uint32_t graph_signature(void)
     h ^= (uint32_t)TSEL->preset * 7u + (uint32_t)song.g[G_SLOT] * 13u + TSEL->user * 257u + up_gen * 7919u + ui.uslot * 104729u;
     if (pg->graph == GR_SLCR && t->p[P_SLCR])        /* the SLICER's step playing */
         h ^= (sl[song.sel].idx + 1u) * 2654435761u;
-    if (pg->scope == SC_GLOBAL && pg->id[0] == G_PROG)   /* JAM: the progression, the chord playing */
+    if (pg->graph == GR_PROG)                        /* JAM: the progression, the chord playing */
         h ^= (uint32_t)song.g[G_PROG] * 40503u +
              (song.playing && song.g[G_PROG] ? prog_bar((uint32_t)song.g[G_PROG] - 1u) + 1u : 0u) * 2654435761u;
     if (pg->graph == GR_SLOTS)                       /* (a checksum over each slot) */
@@ -667,6 +670,33 @@ static void graph_scope(uint16_t c)
     }
 }
 
+/* SLOOP 2.4: a page without a graph (EDIT, VOICE, the DEST pages, GLOBAL, MASTER, SYSTEM...): its values
+ * large in the empty space, 2 x 2 as the knobs (KNOB 1 2 / KNOB 3 4), the one turned in white; one value
+ * alone (FILTER) across the width. The columns (draw_columns, drawn first) fill ui.big_* */
+static void graph_big(void)
+{
+    uint32_t c, n = 0;
+    for (c = 0; c < 4u; c++)
+        n += ui.big_l[c][0] != 0;
+    if (n > 1u) {
+        cv_rect(119, 6, 1, 112, C_LINE);
+        cv_rect(6, 62, 228, 1, C_LINE);
+    }
+    for (c = 0; c < 4u; c++) {
+        int32_t x0 = c & 1u ? 126 : 6, y0 = c & 2u ? 64 : 2, x;
+        if (!ui.big_l[c][0])
+            continue;
+        if (n == 1u) {                                  /* one value: in the middle */
+            x0 = (240 - text_w(&FONT_L, ui.big_v[c]) - (ui.big_u[c][0] ? text_w(&FONT_S, ui.big_u[c]) + 4 : 0)) / 2;
+            y0 = 30;
+        }
+        cv_text(x0, y0 + 2, &FONT_S, ui.big_l[c], TE_COL[c & 3u]);
+        x = cv_text(x0, y0 + 20, &FONT_L, ui.big_v[c], ui.big_c[c] == C_DIM ? C_DIM : ui.big_c[c] == C_WHITE ? C_WHITE : C_HI);
+        if (ui.big_u[c][0])
+            cv_text(x + 4, y0 + 34, &FONT_S, ui.big_u[c], C_GRAY);
+    }
+}
+
 static void draw_graph(void)
 {
     const page_t *pg = cur_page();
@@ -725,15 +755,21 @@ static void draw_graph(void)
             cv_oy = 0;
             graph_user();
             break;
+        case GR_PROG:                                   /* JAM: the progression, the chord playing */
+            graph_prog(c);
+            break;
         default:
-            if (pg->scope == SC_GLOBAL && pg->id[0] == G_PROG)
-                graph_prog(c);
+            if (big_page(pg)) {
+                cv_oy = 0;
+                graph_big();
+            }
             break;
         }
     }
-    top = !ui.home && !drum_note && (pg->graph == GR_BROWSE || pg->graph == GR_SLOTS || pg->graph == GR_USER);   /* these draw from the top */
+    top = !ui.home && !drum_note && (pg->graph == GR_BROWSE || pg->graph == GR_SLOTS || pg->graph == GR_USER ||
+                                     big_page(pg));   /* these draw from the top */
     cv_oy = 0;
-    if (ui.hot_t && settings.zoom) {                 /* focus (menu ZOOM): the touched value, large and white */
+    if (ui.hot_t && settings.zoom && !(top && big_page(pg) && !drum_note)) {   /* (the big values show it already) */                 /* focus (menu ZOOM): the touched value, large and white */
         int32_t x;
         top = 1;
         cv_rect(0, 0, 150, 50, C_BLACK);
@@ -786,8 +822,8 @@ static void draw_foot(void)
     s[str_len(s)] = (char)('1' + song.sel);
     str_cpy(s + str_len(s), pn, 16);
     str_cpy(s + str_len(s), ti, sizeof ti);
-    bank = plk_view() ? ui.step_page : ui.bank;       /* (P-LOCK: the steps of the SEQ page) */
-    lmask = plk_marks(t, bank);
+    bank = ui.bank;
+    lmask = lock_marks(t, bank);
     {   /* step markers: the playhead only when it is in the shown bank, the cursor only in SEQ */
         uint32_t ph = song.playing && t->seq_idx / 16u == bank ? t->seq_idx : 0xFFu;
         sig = str_hash(0x9E3779B9u, s) + ph * 97u + (song.seq_mode ? ui.cursor : 0xFFu) * 3001u + steps_hash(t) +
@@ -924,7 +960,7 @@ static void draw_columns(void)
         return;
     }
     for (c = 0; c < 4u; c++) {
-        int16_t *vp, lv = 0;
+        int16_t *vp;
         const param_desc_t *d = page_desc(cur_page(), c, &vp);
         int32_t v;
         uint32_t lk;
@@ -932,16 +968,16 @@ static void draw_columns(void)
             draw_column(c, "", "", "", C_HI, -1, ICON_AUTO);
             continue;
         }
-        if (cur_page()->id[c] == G_MIDI && cur_page()->scope == SC_GLOBAL) {
+        if (cur_page()->id[c] == G_INFO && cur_page()->scope == SC_GLOBAL && !usb.config) {   /* not connected: the
+                                                       * USB status instead of the CPU (2.4: MIDI is MIDI OUT, ROUT is IN) */
             str_cpy(val, !usb.up ? "OFF" : usb.config ? "MIDI" : usb.setups ? "ENUM" : usb.sof_seen ? "BUS" : "WAIT", 12);
             unit = "USB";
             draw_column(c, "USB", val, unit, C_HI, -1, ICON_AUTO);
             continue;
         }
-        /* P-LOCK, a step key held: the lock of its step (red), else the track's value */
-        lk = plk_view() && cur_page()->scope != SC_GLOBAL && plk_held() < NSTEP &&
-             plk_get(TSEL, plk_held(), cur_page()->id[c], &lv);
-        v = lk ? lv : *vp;
+        /* a parameter lock holds the value now (playing): red */
+        lk = cur_page()->scope != SC_GLOBAL && vp == &TSEL->p[cur_page()->id[c] % P_COUNT] && lock_on(TSEL, cur_page()->id[c]);
+        v = *vp;
         if (cur_page()->id[c] == G_INFO && cur_page()->scope == SC_GLOBAL) {
             fmt_int(val, (int32_t)(song.cpu_q8 * 100u / 256u));
             unit = "%";
@@ -968,6 +1004,9 @@ static void ui_timers(void)
         ui.hot_t--;
 }
 
+static void vis_draw(void);                     /* ui_vis.c */
+static int vis_shown(void);
+static uint8_t vis_on, vis_shown_last, vis_name_t;   /* the visualiser (ui_vis.c): on, drawn last frame, its name's time */
 static void ui_draw(void)
 {
     ui.frame++;
@@ -994,7 +1033,7 @@ static void ui_draw(void)
         if (!ui.msg_t)
             ui_message("ERASED");
     }
-    if (!ui.menu && ((ui.layer != LY_PLAY && !plk_view()) || ui.hold_kind)) {   /* a layer held / a hold to confirm */
+    if (!ui.menu && (ui.layer != LY_PLAY || ui.hold_kind)) {   /* a layer held / a hold to confirm */
         if (ui.hold_kind)
             hold_screen_draw();
         else
@@ -1032,6 +1071,18 @@ static void ui_draw(void)
         ui_timers();
         ui.force = 0;
         return;
+    }
+    if (vis_shown()) {                                  /* the visualiser over the TRACKS screen */
+        vis_draw();
+        ui_timers();
+        ui.force = 0;
+        return;
+    }
+    if (vis_shown_last) {                               /* back from it */
+        vis_shown_last = 0;
+        vis_on = 0;
+        lcd_fill(0, 0, 240, 240, C_BLACK);
+        ui.force = 1;
     }
     if (!ui.home && cur_page()->scope == SC_TRK) {
         studio_tracks_draw();

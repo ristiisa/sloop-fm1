@@ -24,12 +24,13 @@ static void ck(int ok, const char *what)
     bad += !ok;
 }
 
-typedef struct { step_t st[NSTEP]; uint8_t cond[NSTEP]; plk_t lk[PLK_MAX]; } snap_t;
+typedef struct { step_t st[NSTEP]; uint8_t cond[NSTEP]; int8_t micro[NSTEP]; plock_t lk[NLOCK]; } snap_t;
 static void snap(const track_t *t, snap_t *s)
 {
     memcpy(s->st, t->step, sizeof s->st);
     memcpy(s->cond, t->cond, sizeof s->cond);
-    plk_save(t, s->lk);
+    memcpy(s->micro, t->micro, sizeof s->micro);
+    memcpy(s->lk, t->lock, sizeof s->lk);
 }
 static int same(const track_t *t, const snap_t *s)
 {
@@ -81,7 +82,7 @@ static void synth_pattern(track_t *t)
     t->p[P_CHORD] = 0;
     steps_clear(t);
     memset(t->cond, 0, sizeof t->cond);
-    plk_clear_track(t);
+    locks_clear(t);
     note(t, 0, 1, D3, ST_NOTE, LV_SOFT, 1);
     note(t, 1, 0, D3, ST_TIE, 0, 0);
     note(t, 3, 1, F3, ST_NOTE, 0, 0);
@@ -94,7 +95,7 @@ static void synth_pattern(track_t *t)
     note(t, 10, 1, E3, ST_NOTE, 0, 2);
     t->cond[10] = CN_P50;
     note(t, 12, 1, G3, ST_NOTE, LV_HARD, 0);
-    plk_set(t, 12, P_ED_FLT, 30);
+    lock_set(t, 12, P_ED_FLT, 30);
     note(t, 20, 1, X, ST_NOTE, 0, 0);                        /* past LEN: never touched */
 }
 static int has_notes(const step_t *s) { return s->time == ST_NOTE && s->n; }
@@ -148,7 +149,7 @@ static void groove(track_t *t, uint32_t len)
     t->p[P_SLEN] = (int16_t)len;
     steps_clear(t);
     memset(t->cond, 0, sizeof t->cond);
-    plk_clear_track(t);
+    locks_clear(t);
     for (i = 0; i < len; i++) {
         if (i % 4u == 0u || i == 10u)
             dstep_set(&t->dstep[i], LANE_KICK, LV_NORM, 0);
@@ -161,7 +162,7 @@ static void groove(track_t *t, uint32_t len)
     dstep_set(&t->dstep[12], LANE_CLAP, LV_HARD, 0);
     dstep_set(&t->dstep[40], LANE_BELL, LV_NORM, 0);        /* past LEN: never touched */
     t->cond[3] = CN_1_2;
-    plk_set(t, 4, P_SLDEPTH, 50);
+    lock_set(t, 4, P_SLDEPTH, 50);
 }
 static const char *drum_bad(const track_t *t, const snap_t *a)
 {
@@ -414,7 +415,7 @@ int main(int argc, char **argv)
     turn(t, 0);
 
     /* ---- what TURN is: no lock, a pattern parameter (presets keep it) */
-    ck(!plk_lockable(t, P_TURN) && !plk_lockable(TDRUM, P_TURN), "TURN cannot be locked on a step (synth, drums)");
+    ck(!p_lockable(P_TURN) && !lock_set(t, 3, P_TURN, 5) && !lock_set(TDRUM, 3, P_TURN, 5), "TURN cannot be locked on a step (synth, drums)");
     t->p[P_TURN] = 63;
     set_engine_of(t, 0);
     apply_preset_to(t, 3);
@@ -483,6 +484,7 @@ int main(int argc, char **argv)
         edges_btn |= BT(B_OCTUP); fm1_in.buttons |= BT(B_OCTUP); frame(); fm1_in.buttons &= ~BT(B_OCTUP); frame();
         ck(same(t, &t1), "EDIT + OCT+: the turned one again");
         release(B_EDIT);
+        frames(16);                                          /* (KNOB 1..4 quiet ~250 ms after a layer: #39) */
         t->step[2] = t->step[3];                             /* another edit: it takes the undo */
         undo_mark(t, (undo_sess += 4u) | 3u);
         t->step[2].note[0] = 62;

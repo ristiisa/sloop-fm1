@@ -3,13 +3,13 @@
 $ErrorActionPreference = 'Stop'
 Set-Location $PSScriptRoot
 Write-Host ""
-Write-Host "  S L O O P   2.3" -ForegroundColor White
+Write-Host "  S L O O P   2.4.1" -ForegroundColor White
 Write-Host "  ---- ---- ---- ----" -ForegroundColor DarkGray
 Write-Host "== Building the firmware (WSL MinUI-Build)" -ForegroundColor Cyan
 python tools/build_windows.py --distro MinUI-Build --toolchain /root/fm1-codex-deps/jieli/toolchain --sdk build/deps/ac79
 if ($LASTEXITCODE -ne 0) { throw "The build failed" }
 Write-Host "== Making the installer site" -ForegroundColor Cyan
-python web/make_site.py build/felucca.fwsc 2.3 build/sloop-site
+python web/make_site.py build/felucca.fwsc 2.4.1 build/sloop-site
 if ($LASTEXITCODE -ne 0) { throw "make_site failed" }
 Write-Host ""
 Write-Host "Installer: http://localhost:8766/webapp/installer/  (Chrome or Edge, FM-1 on USB)" -ForegroundColor Green

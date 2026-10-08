@@ -136,12 +136,12 @@ int main(int argc, char **argv)
         fm1_in.notes = 0;
         mix_block(got, CTL);
         assert(punch.req == 4 && !punch.keybit);
-        fm1_in.notes = 1u << 1;                       /* a black key: FILL while held */
+        fm1_in.notes = 1u << 1;                       /* a black key: nothing (FILL: GLO + key 9 / 10) */
         mix_block(got, CTL);
-        assert(fill_keys == 2u && kb_kind[1] == KS_FILL && punch.req == 4);
+        assert(!fill_now && kb_kind[1] == KS_FX && punch.req == 4);
         fm1_in.notes = 0;
         mix_block(got, CTL);
-        assert(!fill_keys && punch.req == 4);
+        assert(!fill_now && punch.req == 4);
         for (n = 0; n < 50u; n++)
             mix_block(got, CTL);
         assert(punch.cur == 4);

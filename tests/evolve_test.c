@@ -25,7 +25,7 @@ static void ck(int ok, const char *what)
 
 static step_t init[NTRK][NSTEP], prev[NTRK][NSTEP];
 static uint8_t init_cond[NTRK][NSTEP];
-static plk_t init_lk[PLK_MAX];
+static plock_t init_lk[NTRK][NLOCK];
 
 static void save(step_t (*s)[NSTEP])
 {
@@ -131,7 +131,6 @@ static const char *drum_bad(const track_t *t, const step_t *a)
 }
 static const char *all_bad(void)                    /* every track against init, conditions and locks */
 {
-    static plk_t lk[PLK_MAX];
     uint32_t i;
     const char *why;
     for (i = 0; i < NTRK; i++)
@@ -140,8 +139,10 @@ static const char *all_bad(void)                    /* every track against init,
     for (i = 0; i < NTRK; i++)
         if (memcmp(trk[i].cond, init_cond[i], NSTEP))
             return "a condition changed";
-    memcpy(lk, plk, sizeof lk);
-    return memcmp(lk, init_lk, sizeof lk) ? "a lock changed" : 0;
+    for (i = 0; i < NTRK; i++)
+        if (memcmp(trk[i].lock, init_lk[i], sizeof init_lk[i]))
+            return "a lock changed";
+    return 0;
 }
 
 static void groove(track_t *t, uint32_t len)        /* (mutate_test.c) */
@@ -194,7 +195,7 @@ static void patterns(void)
     note(t, 12, 1, G3, ST_NOTE, LV_HARD, 0);
     note(t, 20, 1, X, ST_NOTE, 0, 0);
     t->cond[11] = CN_P50;
-    plk_set(t, 12, P_ED_FLT, 30);
+    lock_set(t, 12, P_ED_FLT, 30);
     u->p[P_ROOT] = 0;
     u->p[P_SCALE] = 1;
     u->p[P_VOICE] = V_MONO;
@@ -206,11 +207,12 @@ static void patterns(void)
     note(u, 6, 1, G2, ST_NOTE, LV_HARD, 0);
     groove(TDRUM, 16);
     TDRUM->cond[6] = CN_1_2;
-    plk_set(TDRUM, 4, P_SLDEPTH, 50);
+    lock_set(TDRUM, 4, P_SLDEPTH, 50);
     save(init);
     for (i = 0; i < NTRK; i++)
         memcpy(init_cond[i], trk[i].cond, NSTEP);
-    memcpy(init_lk, plk, sizeof init_lk);
+    for (i = 0; i < NTRK; i++)
+        memcpy(init_lk[i], trk[i].lock, sizeof init_lk[i]);
 }
 
 /* the transport, as the audio ISR leaves it for the UI: PLAY (seq_reset_tracks: bar 0), then beat q */
@@ -538,8 +540,8 @@ int main(int argc, char **argv)
         edges_btn |= BT(B_OCTDN); fm1_in.buttons |= BT(B_OCTDN); frame(); fm1_in.buttons &= ~BT(B_OCTDN); frame();
         ok = same(0, init) && !memcmp(t->cond, init_cond[0], NSTEP);
         {
-            int16_t v = 0;
-            ok &= plk_get(t, 12, P_ED_FLT, &v) && v == 30;
+            int k = lock_find(t, 12, P_ED_FLT, 0);
+            ok &= k >= 0 && t->lock[k].val == 30;
         }
         ck(ok, "EDIT + OCT-: track 1 back as before EVOLVE, exactly (its condition, its lock)");
         edges_btn |= BT(B_OCTUP); fm1_in.buttons |= BT(B_OCTUP); frame(); fm1_in.buttons &= ~BT(B_OCTUP); frame();

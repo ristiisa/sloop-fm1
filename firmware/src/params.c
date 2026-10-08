@@ -11,7 +11,11 @@ static const char *const N_ARHYM[] = {"OFF", "QRTR", "8TH", "OFFB", "GALOP", "SK
                                       "SON32", "SON23", "RUMBA", "BOSSA", "SHIKO", "SOUK", "GAHU"};   /* seq.c ARP_RHYM */
 static const char *const N_ASHIFT[] = {"-7", "-6", "-5", "-4", "-3", "-2", "-1", "OFF", "+1", "+2", "+3", "+4", "+5",
                                        "+6", "+7", 0};   /* F_INT: one name a value */
+static const char *const N_MOUT[] = {"KEYS", "SEQ"};
+static const char *const N_MIN[] = {"NOTES", "CLOCK"};  /* G_ROUTE: MIDI in, notes and clock, or the clock only (seq.c) */    /* G_MIDI: what goes to MIDI OUT (seq.c seq_out_on) */
 static const char *const N_DIV[] = {"1/4", "1/8", "1/16", "1/32", "8T", "16T"};
+static const char *const N_SDIV[] = {"1/4", "1/8", "1/16", "1/32", "8T", "16T", "1/2", "1BAR", "2BAR"};   /* core.h div_units */
+static const char *const N_DLY[] = {"1/4", "1/8", "1/16", "1/32", "8T", "16T", "1/8D", "1/16D"};          /* core.h dly_units */
 static const char *const N_SCALE[] = {"CHR", "MAJ", "MIN", "DOR", "MIX", "PEN", "MPEN", "HARM",
                                     "PHRY", "LYD", "LOC", "MEL", "BLUES", "WHOLE", "DIMHW", "DIMWH"};
 static const char *const N_ONOFF[] = {"OFF", "ON"};
@@ -37,6 +41,7 @@ static const char *const N_AFILL[] = {"OFF", "2", "4", "8", "16", "2H", "4H", "8
 static const char *const N_PROG[] = {"OFF", "1564", "6415", "1645", "2511", "1454", "1637", "1451", "ANDAL",
                                      "BLUES"};   /* seq.c PROG_DEG */
 static const char *const N_ENGNAME[] = {"ANALOG", "DIGITAL", "PHASE", "LOFI", "SAMPLE", "VOICE", "TRIO", "WHEEL", "GRAIN",
+                                        "FM6",
 #if FELUCCA_SLICE
                                              "SLICE",
 #endif
@@ -76,7 +81,7 @@ static const param_desc_t TP[P_COUNT] = {
     [P_QUANT] = PE("QNT", N_QUANT, 0),
     [P_TRANS] = PD("TRN", F_SEMI, -24, 24, 0),
     [P_SLEN] = PD("LEN", F_STEPS, 1, NSTEP, 16),
-    [P_SDIV] = PE("DIV", N_DIV, 2),
+    [P_SDIV] = PE("DIV", N_SDIV, 2),
     [P_SSWING] = PD("SWG", F_SWING, 0, 100, 0),
     [P_SGATE] = PD("GATE", F_PCT, 1, 127, 64),
     [P_DIST] = PD("DST", F_PCT, 0, 127, 0),
@@ -96,6 +101,9 @@ static const param_desc_t TP[P_COUNT] = {
     [P_SLRATE] = PE("RATE", N_SLDIV, 1),
     [P_SLDEPTH] = PD("DEPTH", F_PCT, 0, 127, 127),
     [P_CHORD] = PE("CHORD", N_CHORD, 0),
+    [P_TFLT] = PD("FILT", F_FILT, -64, 63, 0),
+    [P_STRUM] = PD("STRUM", F_INT, -60, 60, 0),   /* ms a note: > 0 low to high (down), < 0 high to low */
+    [P_VLEAD] = PE("VLEAD", N_ONOFF, 0),
     [P_AACC] = PE("ACC", N_AACC, 0),
     [P_AHITS] = PD("HITS", F_INT, 1, 16, 16),       /* HITS >= STEPS: every step */
     [P_ASTEPS] = PD("STEPS", F_INT, 1, 16, 16),
@@ -128,7 +136,7 @@ static const param_desc_t GP[G_COUNT] = {
     [G_SWING] = PD("SWING", F_SWING, 0, 100, 0),
     [G_CLOCK] = PE("CLICK", N_CLICK, 0),            /* (the old CLK slot: projects keep their format) */
     [G_TUNE] = PD("TUNE", F_INT, -50, 50, 0),
-    [G_DTIME] = PE("TIME", N_DIV, 1),
+    [G_DTIME] = PE("TIME", N_DLY, 1),
     [G_DFDBK] = PD("FDBK", F_PCT, 0, 120, 60),
     [G_DCOLOR] = PD("COLR", F_PCT, 0, 127, 70),
     [G_DMIX] = PD("MIX", F_PCT, 0, 127, 90),
@@ -136,9 +144,9 @@ static const param_desc_t GP[G_COUNT] = {
     [G_RDAMP] = PD("DAMP", F_PCT, 0, 127, 60),
     [G_CRATE] = PD("CRT", F_LFOHZ, 0, 127, 40),
     [G_CDEPTH] = PD("CDP", F_PCT, 0, 127, 60),
-    [G_MIDI] = PE("MIDI", N_DASH, 0),
+    [G_MIDI] = PE("MIDI", N_MOUT, 0),           /* MIDI OUT: the keys, or the sequencer too (a setting of the FM-1) */
     [G_SYNC] = PE("SYNC", N_SYNC, 0),           /* a setting of the FM-1, not of a project (panel.c lights_sync) */
-    [G_ROUTE] = PE("ROUT", N_DASH, 0),
+    [G_ROUTE] = PE("IN", N_MIN, 0),             /* MIDI IN: NOTES (and the clock) or CLOCK only (a setting of the FM-1) */
     [G_INFO] = PD("CPU", F_INT, 0, 0, 0),
     [G_SLOT] = PD("SLOT", F_INT, 1, 4, 1),
     [G_NAME] = PE("NAME", N_DASH, 0),
@@ -236,8 +244,11 @@ static void param_format(const param_desc_t *d, int32_t v, char *val, const char
         if (h < 1000u) {
             fmt_int(val, (int32_t)h);
             *unit = "Hz";
-        } else {
+        } else if (h < 10000u) {
             fmt_fix(val, (int32_t)(h / 100u), 1);
+            *unit = "kHz";
+        } else {
+            fmt_int(val, (int32_t)((h + 500u) / 1000u));   /* "12 kHz": "12.5" would leave no room for the unit */
             *unit = "kHz";
         }
         break;
@@ -245,8 +256,11 @@ static void param_format(const param_desc_t *d, int32_t v, char *val, const char
     case F_DB:
         if (v <= 0) {
             str_cpy(val, "OFF", 6);
-        } else {
+        } else if (LEVEL_DB_X10[v] > -100) {
             fmt_fix(val, LEVEL_DB_X10[v], 1);
+            *unit = "dB";
+        } else {
+            fmt_int(val, (LEVEL_DB_X10[v] - 5) / 10);   /* "-12 dB": five characters leave no room for the unit */
             *unit = "dB";
         }
         break;
@@ -299,7 +313,7 @@ enum { FAM_HOME, FAM_ENV, FAM_LFO, FAM_FX, FAM_SCL, FAM_EDIT, FAM_GLO, FAM_SAVE,
        FAM_COUNT };
 enum { SC_TRACK, SC_GLOBAL, SC_ENGINE, SC_STEP, SC_TRK, SC_SONG, SC_DRUM };
 enum { GR_NONE, GR_ADSR, GR_LFO, GR_STEPS, GR_ARP, GR_SCALE, GR_FX, GR_ROLL, GR_BROWSE, GR_SLOTS, GR_USER, GR_TRK,
-       GR_SLCR };
+       GR_SLCR, GR_PROG };
 
 typedef struct {
     const char *title;
@@ -313,12 +327,13 @@ static const page_t PAGES[] = {
     {"LFO", FAM_LFO, SC_TRACK, GR_LFO, {P_LRATE, P_LWAVE, P_LPHASE, P_LFADE}},
     {"LFO DEST", FAM_LFO, SC_TRACK, GR_NONE, {P_LD_PIT, P_LD_FLT, P_LD_SHP, P_LD_AMP}},
     {"FX", FAM_FX, SC_TRACK, GR_FX, {P_DIST, P_CHOR, P_DLY, P_REV}},
+    {"FILTER", FAM_FX, SC_TRACK, GR_NONE, {P_TFLT, 0xFF, 0xFF, 0xFF}},   /* the track's filter (drum track too) */
     {"SLICER", FAM_FX, SC_TRACK, GR_SLCR, {P_SLCR, P_SLPAT, P_SLRATE, P_SLDEPTH}},   /* drum track too */
     {"COLOR", FAM_FX, SC_TRACK, GR_NONE, {P_COLOR, P_CAMT, P_CRATE, 0xFF}},          /* drum track too */
     {"DLY", FAM_FX, SC_GLOBAL, GR_NONE, {G_DTIME, G_DFDBK, G_DCOLOR, G_DMIX}},
     {"REV/CHO", FAM_FX, SC_GLOBAL, GR_NONE, {G_RSIZE, G_RDAMP, G_CRATE, G_CDEPTH}},
     {"SCL", FAM_SCL, SC_TRACK, GR_SCALE, {P_ROOT, P_SCALE, P_QUANT, P_CHORD}},
-    {"SCL 2", FAM_SCL, SC_TRACK, GR_SCALE, {P_TRANS, 0xFF, 0xFF, 0xFF}},
+    {"SCL 2", FAM_SCL, SC_TRACK, GR_SCALE, {P_TRANS, P_STRUM, P_VLEAD, 0xFF}},   /* (2.4: the chords played) */
     {"EDIT 1", FAM_EDIT, SC_ENGINE, GR_NONE, {P_E0, P_E1, P_E2, P_E3}},
     {"EDIT 2", FAM_EDIT, SC_ENGINE, GR_NONE, {P_E4, P_E5, P_E6, P_E7}},
     {"VOICE", FAM_EDIT, SC_TRACK, GR_NONE, {P_VOICE, P_GLIDE, P_GLMODE, P_PRIO}},
@@ -327,7 +342,7 @@ static const page_t PAGES[] = {
     {"MASTER", FAM_GLO, SC_GLOBAL, GR_NONE, {G_DUST, G_DUCK, G_FILT, G_ROLL}},
     {"SYSTEM", FAM_GLO, SC_GLOBAL, GR_NONE, {G_MIDI, G_SYNC, G_ROUTE, G_INFO}},
     {"DRUMS", FAM_GLO, SC_GLOBAL, GR_NONE, {G_DRCH, G_DRLVL, G_DRREV, 0xFF}},   /* GM kit on MIDI ch 10 */
-    {"JAM", FAM_GLO, SC_GLOBAL, GR_NONE, {G_PROG, G_EVOL, G_EVBK, G_AFILL}},
+    {"JAM", FAM_GLO, SC_GLOBAL, GR_PROG, {G_PROG, G_EVOL, G_EVBK, G_AFILL}},
     {"PRESETS", FAM_SAVE, SC_GLOBAL, GR_BROWSE, {0xFF, 0xFF, 0xFF, 0xFF}},   /* browser: PRESETS knob / KNOB 1 */
     {"USER", FAM_SAVE, SC_GLOBAL, GR_USER, {0xFF, 0xFF, 0xFF, 0xFF}},       /* user presets: SLOT LOAD ERASE SAVE */
     {"PROJECT", FAM_SAVE, SC_GLOBAL, GR_SLOTS, {G_SLOT, 0xFF, G_LOAD, G_SAVE}},
@@ -351,6 +366,8 @@ static const page_t PAGES[] = {
  * shows "DRUM TRACK" */
 static int page_for_drum(const page_t *pg)
 {
+    if (pg->scope == SC_STEP)                       /* (2.4) the synth steps' roll: the drums have their grid. Reached */
+        return 0;                                   /* by ALGO from a synth track, it drew the drum steps as notes */
     if (pg->scope == SC_GLOBAL)
         return pg->graph != GR_BROWSE && pg->graph != GR_USER;
     return pg->scope != SC_ENGINE && (pg->scope != SC_TRACK || pg->fam == FAM_SEQ || pg->graph == GR_SLCR ||

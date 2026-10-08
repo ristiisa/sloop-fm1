@@ -2,7 +2,8 @@
  * Copyright (C) 2026 Leo Kuroshita (@kurogedelic), Hügelton Instruments */
 /* Host test of the user preset record (firmware/src/upreset.c, -DUP_HOST part):
  * UP_PUT parsing, a bank round trip through storage.c on a simulated NOR,
- * bank / record version checks, map-by-count, pattern <-> steps. */
+ * bank / record version checks, map-by-count, pattern <-> steps; SLOOP 2.5's records: SLOOP 2.4's
+ * layout (np 61) with 2.5's parameters packed after it. */
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -63,10 +64,17 @@ int main(void)
     bad += check("UP_PUT frame < 640 bytes", 5u + n + 1u < 640u);
     bad += check("UP_PUT parses", up_parse(a, n, &r, &slot) == 0 && slot == 5u && r.engine == 2u &&
                                       up_valid(&r) && !memcmp(r.name, "Bass One", 8) && !r.name[8]);
-    ok = 1;
     for (i = 0; i < P_COUNT; i++)
+        def[i] = (int16_t)(1000 + i);
+    up_params(&r, v, def);
+    ok = r.np == P_NP_V24;
+    for (i = 0; i < P_COUNT; i++)
+        ok &= v[i] == (int16_t)(-40 + (int32_t)i);
+    for (i = 0; i < P_E0_V24; i++)                          /* (SLOOP 2.4's layout: as it reads them) */
         ok &= r.p[i] == (int16_t)(-40 + (int32_t)i);
-    bad += check("UP_PUT values (negative v14 too)", ok);
+    for (i = 0; i < 8u; i++)
+        ok &= r.p[P_E0_V24 + i] == (int16_t)(-40 + (int32_t)(P_E0 + i));
+    bad += check("UP_PUT values (negative v14 too), stored in 2.4's layout + 2.5's packed", ok);
     bad += check("pattern: rest drops flags, tie has no note",
                  r.note[0] == 0 && r.flags[0] == 0 && r.note[1] == 41 && r.flags[1] == 1 && r.note[3] == 0 &&
                      r.flags[3] == 4);
@@ -120,33 +128,34 @@ int main(void)
     up_rec(17)->ver = UP_VER + 1u;
     bad += check("record with another version -> empty", !up_used(17));
 
-    /* map by count: a record from a build with 2 parameters fewer */
+    /* map by count: a record from a build with 2 parameters fewer (than 2.4's) */
     for (i = 0; i < P_COUNT; i++)
         def[i] = (int16_t)(1000 + i);
-    r.np = P_COUNT - 2u;
-    for (i = 0; i < P_COUNT; i++)
+    memset(&r, 0, sizeof r);
+    r.np = P_NP_V24 - 2u;
+    for (i = 0; i < r.np; i++)
         r.p[i] = (int16_t)i;
     up_params(&r, v, def);
     ok = 1;
     for (i = 0; i < P_E0; i++)
-        ok &= v[i] == (i < P_E0 - 2u ? (int16_t)i : def[i]);
+        ok &= v[i] == (i < P_E0_V24 - 2u ? (int16_t)i : def[i]);
     for (i = 0; i < 8u; i++)
-        ok &= v[P_E0 + i] == (int16_t)(P_E0 - 2u + i);
-    bad += check("np < P_COUNT: mapped by count", ok);
+        ok &= v[P_E0 + i] == (int16_t)(P_E0_V24 - 2u + i);
+    bad += check("np < 2.4's: mapped by count", ok);
     /* a record saved before the SLICER (P_COUNT 53, P_E0 45): the four SLICER parameters (just
      * before P_E0) take their defaults, everything else keeps its id */
     r.np = 53;
     for (i = 0; i < 53u; i++)
         r.p[i] = (int16_t)(2000 + i);
     up_params(&r, v, def);
-    ok = P_SLCR == 45 && P_SLDEPTH + 1 == P_CHORD && P_CHORD == 49 && P_E0 == 64;
+    ok = P_SLCR == 45 && P_SLDEPTH + 1 == P_CHORD && P_CHORD == 49 && P_TFLT == 50 && P_VLEAD == 52 && P_E0_V24 == 53;
     for (i = 0; i < 45u; i++)
         ok &= v[i] == (int16_t)(2000 + i);
     for (i = P_SLCR; i < P_E0; i++)
         ok &= v[i] == def[i];
     for (i = 0; i < 8u; i++)
         ok &= v[P_E0 + i] == (int16_t)(2000 + 45 + i);
-    bad += check("old record (np 53): SLICER, CHORD and the arp's defaults, E0..E7 kept", ok);
+    bad += check("old record (np 53): SLICER, CHORD, FILTER and 2.5's defaults, E0..E7 kept", ok);
     /* a record of SLOOP 1.0 (P_COUNT 57, P_E0 49): CHORD (SLOOP 2.0) takes its default */
     r.np = 57;
     for (i = 0; i < 57u; i++)
@@ -159,80 +168,52 @@ int main(void)
         ok &= v[i] == def[i];
     for (i = 0; i < 8u; i++)
         ok &= v[P_E0 + i] == (int16_t)(3000 + 49 + i);
-    bad += check("SLOOP 1.0 record (np 57): CHORD and the arp's defaults, the rest kept", ok);
-    /* a record of SLOOP 2.0..2.3 (P_COUNT 58, P_E0 50): the arp rhythm (2.4) takes its defaults */
+    bad += check("SLOOP 1.0 record (np 57): CHORD and what came since default, the rest kept", ok);
+    /* a record of SLOOP 2.0 .. 2.3 (P_COUNT 58, P_E0 50): the FILTER, STRUM, VLEAD (2.4) and 2.5's take their defaults */
     r.np = 58;
     for (i = 0; i < 58u; i++)
         r.p[i] = (int16_t)(4000 + i);
     up_params(&r, v, def);
     ok = 1;
-    for (i = 0; i <= P_CHORD; i++)
+    for (i = 0; i < P_TFLT; i++)
         ok &= v[i] == (int16_t)(4000 + i);
-    for (i = P_AACC; i < P_E0; i++)
+    for (i = P_TFLT; i < P_E0; i++)
         ok &= v[i] == def[i];
     for (i = 0; i < 8u; i++)
         ok &= v[P_E0 + i] == (int16_t)(4000 + 50 + i);
-    bad += check("SLOOP 2.0 record (np 58): arp rhythm defaults, the rest kept", ok);
-    /* a record of SLOOP 2.4 (P_COUNT 62, P_E0 54): ROT / SYNC / RHYM / DEJA (2.5) take their defaults */
-    r.np = 62;
-    for (i = 0; i < 62u; i++)
+    bad += check("2.3 record (np 58): FILTER, STRUM, VLEAD and 2.5's defaults, CHORD and E0..E7 kept", ok);
+    /* a record of SLOOP 2.4 (np 61, no tag): its own as stored, 2.5's defaults */
+    memset(&r, 0, sizeof r);
+    r.np = P_NP_V24;
+    for (i = 0; i < P_NP_V24; i++)
         r.p[i] = (int16_t)(5000 + i);
     up_params(&r, v, def);
-    ok = P_ARAT + 1 == P_AROT;
-    for (i = 0; i <= P_ARAT; i++)
-        ok &= v[i] == (int16_t)(5000 + i);
-    for (i = P_AROT; i < P_E0; i++)
-        ok &= v[i] == def[i];
-    for (i = 0; i < 8u; i++)
-        ok &= v[P_E0 + i] == (int16_t)(5000 + 54 + i);
-    bad += check("SLOOP 2.4 record (np 62): ROT, SYNC, RHYM, DEJA, SHIFT, CYC defaults, the rest kept", ok);
-    /* a record of SLOOP 2.5 before SHIFT (P_COUNT 66, P_E0 58): SHIFT / CYC take their defaults */
-    r.np = 66;
-    for (i = 0; i < 66u; i++)
-        r.p[i] = (int16_t)(6000 + i);
-    up_params(&r, v, def);
-    ok = P_ADEJA + 1 == P_ASHIFT && P_ACYC + 1 == P_TURN;
-    for (i = 0; i <= P_ADEJA; i++)
-        ok &= v[i] == (int16_t)(6000 + i);
-    for (i = P_ASHIFT; i < P_E0; i++)
-        ok &= v[i] == def[i];
-    for (i = 0; i < 8u; i++)
-        ok &= v[P_E0 + i] == (int16_t)(6000 + 58 + i);
-    bad += check("SLOOP 2.5 record (np 66): SHIFT, CYC, TURN, COLOR defaults, the rest kept", ok);
-    /* a record of SLOOP 2.5 before TURN (P_COUNT 68, P_E0 60): TURN takes its default */
-    r.np = 68;
-    for (i = 0; i < 68u; i++)
-        r.p[i] = (int16_t)(7000 + i);
-    up_params(&r, v, def);
-    ok = P_ACYC + 1 == P_TURN && v[P_TURN] == def[P_TURN];
-    for (i = 0; i <= P_ACYC; i++)
-        ok &= v[i] == (int16_t)(7000 + i);
-    for (i = P_TURN; i < P_E0; i++)
-        ok &= v[i] == def[i];
-    for (i = 0; i < 8u; i++)
-        ok &= v[P_E0 + i] == (int16_t)(7000 + 60 + i);
-    bad += check("SLOOP 2.5 record (np 68): TURN, COLOR defaults, the rest kept", ok);
-    /* a record of SLOOP 2.5 before COLOR (P_COUNT 69, P_E0 61): TYPE / AMT / RATE take their defaults */
-    r.np = 69;
-    for (i = 0; i < 69u; i++)
-        r.p[i] = (int16_t)(8000 + i);
-    up_params(&r, v, def);
-    ok = P_TURN + 1 == P_COLOR && P_CRATE + 1 == P_E0 && P_E0 == 64 && P_COUNT == 72;
-    for (i = 0; i <= P_TURN; i++)
-        ok &= v[i] == (int16_t)(8000 + i);
-    for (i = P_COLOR; i < P_E0; i++)
-        ok &= v[i] == def[i];
-    for (i = 0; i < 8u; i++)
-        ok &= v[P_E0 + i] == (int16_t)(8000 + 61 + i);
-    bad += check("SLOOP 2.5 record (np 69): COLOR defaults, the rest kept", ok);
-    r.np = P_COUNT;
-    for (i = 0; i < P_COUNT; i++)
-        r.p[i] = (int16_t)i;
-    up_params(&r, v, def);
     ok = 1;
+    for (i = 0; i < P_E0_V24; i++)
+        ok &= v[i] == (int16_t)(5000 + i);
+    for (i = P_E0_V24; i < P_E0; i++)
+        ok &= v[i] == def[i];
+    for (i = 0; i < 8u; i++)
+        ok &= v[P_E0 + i] == (int16_t)(5000 + P_E0_V24 + i);
+    bad += check("2.4 record (np 61): as stored, 2.5's parameters their defaults", ok);
+    /* a record of SLOOP 2.5: every value back; 2.4's part where 2.4 reads it, the rest tagged after it */
     for (i = 0; i < P_COUNT; i++)
-        ok &= v[i] == (int16_t)i;
-    bad += check("np == P_COUNT: as stored", ok);
+        v[i] = (int16_t)(i >= P_E0_V24 && i < P_E0 ? (int32_t)i * 9 % 256 - 128 : 6000 + (int32_t)i);
+    up_rec_set(&r, v);
+    {
+        int16_t w[P_COUNT];
+        up_params(&r, w, def);
+        ok = r.np == P_NP_V24 && !memcmp(v, w, sizeof w) && (uint16_t)r.p[UP_PMAX - 1u] == (UP_XTAG | P_NX);
+        for (i = 0; i < P_E0_V24; i++)
+            ok &= r.p[i] == v[i];
+        for (i = 0; i < 8u; i++)
+            ok &= r.p[P_E0_V24 + i] == v[P_E0 + i];
+        bad += check("2.5 record: every value back (2.5's a byte each, signed), 2.4's layout as 2.4 reads it", ok);
+        r.p[UP_PMAX - 1u] = 0;                              /* the tag gone (a 2.4 editor's record): 2.5's default */
+        up_params(&r, w, def);
+        ok = w[P_E0_V24] == def[P_E0_V24] && w[P_E0 - 1u] == def[P_E0 - 1u] && w[P_E0] == v[P_E0];
+        bad += check("2.5 record without its tag: 2.5's defaults", ok);
+    }
 
     {   /* steps -> pattern (UP_STORE) */
         step_t st[NSTEP];
