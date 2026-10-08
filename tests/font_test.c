@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <time.h>
+#define __attribute__(x)                 /* (as hostsim.c: no .pool section on the host; Mach-O rejects it) */
 static void lcd_sync(void) {}
 static void lcd_blit(uint32_t x, uint32_t y, uint32_t w, uint32_t h, const uint16_t *p)
 { (void)x; (void)y; (void)w; (void)h; (void)p; }
